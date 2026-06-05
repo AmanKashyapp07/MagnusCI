@@ -6,6 +6,7 @@ const pool = require("./db");
 const healthRoutes = require("./routes/health");
 const repositoryRoutes = require("./routes/repositories");
 const buildRoutes = require("./routes/builds");
+const webhookRoutes = require("./routes/webhooks");
 
 dotenv.config();
 
@@ -13,12 +14,21 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 
 app.use(cors());
-app.use(express.json());
+
+// Configure JSON parser to extract rawBody for signature verification
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 
 // Routes
 app.use("/api/health", healthRoutes);
 app.use("/api/repositories", repositoryRoutes);
 app.use("/api/builds", buildRoutes);
+app.use("/api/webhooks", webhookRoutes);
 
 app.listen(PORT, () => {
   console.log(`Backend server is running on http://localhost:${PORT}`);
