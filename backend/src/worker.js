@@ -203,8 +203,35 @@ const extractTestSummary = (logs, defaultMsg) => {
   return defaultMsg;
 };
 
+const extractDetailedTestResults = (logs) => {
+  if (!logs) return 'No build logs available.';
+  const cleanLogs = logs.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+  const lines = cleanLogs.split('\n');
+  const results = [];
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('✓') || trimmed.startsWith('✕') || trimmed.startsWith('PASS') || trimmed.startsWith('FAIL')) {
+      results.push(trimmed);
+    }
+    if ((trimmed.includes('PASSED') || trimmed.includes('FAILED')) && trimmed.includes('::')) {
+      results.push(trimmed);
+    }
+  }
+
+  if (results.length === 0) {
+    const suitesIndex = cleanLogs.indexOf('Test Suites:');
+    if (suitesIndex !== -1) {
+      return cleanLogs.substring(suitesIndex).trim();
+    }
+    return 'Detailed test results not parsed. Please view CI/CD Dashboard.';
+  }
+
+  return results.join('\n');
+};
+
 // --- Auto-Revert Commit Helper ---
-const handleRevertCommit = async (workspacePath, repoUrl, commitHash, branchName, buildId) => {
+const handleRevertCommit = async (workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs) => {
   if (!process.env.GITHUB_TOKEN) {
     logWorker(`[REVERT] No GITHUB_TOKEN configured. Cannot auto-revert commit.`);
     return `\n[REVERT] No GITHUB_TOKEN configured. Cannot auto-revert commit.\n`;
@@ -234,9 +261,27 @@ const handleRevertCommit = async (workspacePath, repoUrl, commitHash, branchName
     await repoGit.remote(['set-url', 'origin', authenticatedUrl]);
     logOutput += `[REVERT] Remote URL configured with GITHUB_TOKEN.\n`;
 
-    // Perform Revert
-    await repoGit.raw(['revert', '--no-edit', commitHash]);
-    logOutput += `[REVERT] Revert commit created locally.\n`;
+    // Retrieve original commit subject
+    const originalSubject = await repoGit.raw(['log', '-1', '--format=%s', commitHash])
+      .then(s => s.trim())
+      .catch(() => `commit ${commitHash.slice(0, 7)}`);
+
+    // Perform Revert locally but do not commit yet
+    await repoGit.raw(['revert', '--no-commit', commitHash]);
+    logOutput += `[REVERT] Revert changes staged locally.\n`;
+
+    // Format custom commit message containing test summary
+    const testDetails = extractDetailedTestResults(buildLogs);
+    const commitMsg = `Revert "${originalSubject}"
+
+This reverts commit ${commitHash}.
+
+Test Case Failures/Details:
+${testDetails}`;
+
+    // Commit changes with custom description
+    await repoGit.commit(commitMsg);
+    logOutput += `[REVERT] Custom revert commit created locally.\n`;
 
     // Push changes back to origin
     await repoGit.push('origin', `HEAD:${branchName}`);
@@ -430,7 +475,7 @@ const worker = new Worker('build-queue', async job => {
     await updateGitHubStatus(owner, repoName, commitHash, githubState, description, targetUrl);
 
     if (finalStatus === 'FAILED') {
-      const revertLog = await handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId);
+      const revertLog = await handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs);
       buildLogs += revertLog;
     }
 
@@ -456,7 +501,7 @@ const worker = new Worker('build-queue', async job => {
     await updateGitHubStatus(owner, repoName, commitHash, 'error', 'Build error', targetUrl);
 
     if (workspacePath) {
-      const revertLog = await handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId);
+      const revertLog = await handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs);
       buildLogs += revertLog;
     }
 
