@@ -50,6 +50,18 @@ router.post("/github", verifyGithubSignature, async (req, res) => {
     return res.status(200).json({ message: `Webhook received. Ignored event type: ${eventType}` });
   }
 
+  // Prevent infinite loops from Magnus CI auto-reverting commits
+  const headCommit = payload.head_commit;
+  if (headCommit && (
+    headCommit.author?.name === 'Magnus CI' ||
+    headCommit.committer?.name === 'Magnus CI' ||
+    headCommit.author?.email === 'ci@magnus.internal' ||
+    headCommit.committer?.email === 'ci@magnus.internal'
+  )) {
+    console.log(`[Webhook] Ignoring push event triggered by Magnus CI.`);
+    return res.status(200).json({ message: "Ignored commit pushed by Magnus CI to prevent infinite loops." });
+  }
+
   try {
     const repository = payload.repository;
     const commitHash = payload.after; // The SHA of the commit that triggered the webhook

@@ -1,7 +1,0 @@
-{
-  "name": "mock-repo",
-  "version": "1.0.0",
-  "scripts": {
-  "test": "echo 'Sleeping for 10s...' && sleep 10 && echo 'Mock tests finished!' && exit 0"
-}
-}
