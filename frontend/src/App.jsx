@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const API_BASE = "http://localhost:5001/api";
 
@@ -14,6 +14,66 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+
+  const [selectedBuild, setSelectedBuild] = useState(null);
+  const [selectedRepo, setSelectedRepo] = useState(null);
+  const [logs, setLogs] = useState("");
+  const [isLogsLoading, setIsLogsLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const logsEndRef = useRef(null);
+
+  // Helper for stripping ANSI and cleaning raw TTY output (spinners, carriage returns, Jest noise)
+  const stripAnsi = (str) => {
+    if (!str) return "";
+    
+    // 1. Strip ANSI escape codes
+    let cleaned = str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+    
+    // 2. Remove npm spinner symbols (like \|/-\|/-\|/-)
+    cleaned = cleaned.replace(/[\\|/-\s]{4,}/g, (match) => {
+      if (/^[\\|/-\s]+$/.test(match) && (match.includes('\\') || match.includes('/') || match.includes('|'))) {
+        return ' ';
+      }
+      return match;
+    });
+
+    // 3. Process carriage returns (\r) and filter out interactive Jest Tty updates (like "RUNS  ...")
+    const lines = cleaned.split('\n');
+    const processedLines = [];
+
+    for (let line of lines) {
+      let finalLine = line;
+      if (line.includes('\r')) {
+        const segments = line.split('\r');
+        for (const segment of segments) {
+          if (segment.trim().length > 0) {
+            finalLine = segment;
+          }
+        }
+      }
+      
+      const trimmed = finalLine.trim();
+      // Skip interactive runs/spinners
+      if (trimmed === "RUNS  ..." || trimmed === "RUNS" || trimmed === "\\" || trimmed === "/" || trimmed === "|" || trimmed === "-") {
+        continue;
+      }
+      processedLines.push(finalLine);
+    }
+
+    // Deduplicate empty lines
+    return processedLines.filter((line, index, arr) => {
+      if (line.trim() === "" && index > 0 && arr[index - 1].trim() === "") {
+        return false;
+      }
+      return true;
+    }).join('\n');
+  };
+
+  const handleCopyLogs = () => {
+    navigator.clipboard.writeText(stripAnsi(logs));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   // Check URL parameters for a new token redirect from GitHub callback
   useEffect(() => {
@@ -108,6 +168,52 @@ function App() {
     }
   }, [token, fetchWithAuth]);
 
+  const fetchLogs = useCallback(async (buildId, silent = false) => {
+    if (!token) return;
+    if (!silent) setIsLogsLoading(true);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/builds/${buildId}/logs`);
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data.logs);
+      }
+    } catch (err) {
+      console.error("Failed to fetch logs:", err);
+    } finally {
+      if (!silent) setIsLogsLoading(false);
+    }
+  }, [token, fetchWithAuth]);
+
+  useEffect(() => {
+    if (!selectedBuild) {
+      setLogs("");
+      return;
+    }
+    fetchLogs(selectedBuild.id);
+    const isLive = ["running", "pending"].includes(selectedBuild.status?.toLowerCase());
+    if (!isLive) return;
+    const interval = setInterval(() => {
+      fetchBuilds();
+      fetchLogs(selectedBuild.id, true);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [selectedBuild, fetchLogs, fetchBuilds]);
+
+  useEffect(() => {
+    if (selectedBuild) {
+      const updated = builds.find(b => b.id === selectedBuild.id);
+      if (updated && updated.status !== selectedBuild.status) {
+        setSelectedBuild(updated);
+      }
+    }
+  }, [builds, selectedBuild]);
+
+  useEffect(() => {
+    if (logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logs, selectedBuild]);
+
   // Load user data and run checks when token changes
   useEffect(() => {
     checkHealth();
@@ -185,6 +291,15 @@ function App() {
         return "bg-zinc-500/10 text-zinc-300 border border-zinc-500/30";
     }
   };
+
+  // Filter builds based on selected repository
+  const filteredBuilds = selectedRepo
+    ? builds.filter(
+        (b) =>
+          b.repository_id === selectedRepo.id ||
+          b.repository_name?.toLowerCase() === selectedRepo.name?.toLowerCase()
+      )
+    : builds;
 
   // Derived Dashboard Statistics
   const activeRunners = builds.filter(b => b.status?.toLowerCase() === 'running').length;
@@ -500,26 +615,52 @@ function App() {
                       <p className="text-zinc-500 text-sm">No repositories connected.</p>
                     </div>
                   ) : (
-                    repos.map((repo) => (
-                      <div key={repo.id} className="group flex justify-between items-center p-3.5 bg-[#09090b] border border-white/5 rounded-xl hover:border-cyan-500/30 transition-all">
-                        <div className="flex items-center gap-4">
-                          <div className="w-9 h-9 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400 group-hover:bg-cyan-500 group-hover:text-zinc-950 transition-colors">
-                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                              <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
-                            </svg>
+                    repos.map((repo) => {
+                      const isSelected = selectedRepo?.id === repo.id;
+                      return (
+                        <div 
+                          key={repo.id} 
+                          onClick={() => setSelectedRepo(isSelected ? null : repo)}
+                          className={`group flex justify-between items-center p-3.5 bg-[#09090b] border rounded-xl hover:border-cyan-500/30 transition-all cursor-pointer select-none ${
+                            isSelected 
+                              ? 'border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.15)] bg-cyan-500/[0.02]' 
+                              : 'border-white/5'
+                          }`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+                              isSelected 
+                                ? 'bg-cyan-500 text-zinc-950' 
+                                : 'bg-cyan-500/10 text-cyan-400 group-hover:bg-cyan-500 group-hover:text-zinc-950'
+                            }`}>
+                              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-zinc-200 text-sm flex items-center gap-2">
+                                {repo.name}
+                                {isSelected && (
+                                  <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20">Selected</span>
+                                )}
+                              </span>
+                              <a href={repo.github_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-zinc-500 hover:text-cyan-400 transition-colors mt-0.5 max-w-[200px] sm:max-w-xs truncate">
+                                {repo.github_url}
+                              </a>
+                            </div>
                           </div>
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-zinc-200 text-sm">{repo.name}</span>
-                            <a href={repo.github_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-zinc-500 hover:text-cyan-400 transition-colors mt-0.5 max-w-[200px] sm:max-w-xs truncate">
-                              {repo.github_url}
-                            </a>
+                          <div className={`hidden sm:flex px-2.5 py-1 rounded-md border ${
+                            isSelected 
+                              ? 'bg-cyan-500/10 border-cyan-500/30' 
+                              : 'bg-white/5 border-white/5'
+                          }`}>
+                            <span className={`text-[10px] font-mono uppercase tracking-widest ${
+                              isSelected ? 'text-cyan-400 font-bold' : 'text-zinc-500'
+                            }`}>ID:{repo.id}</span>
                           </div>
                         </div>
-                        <div className="hidden sm:flex bg-white/5 px-2.5 py-1 rounded-md border border-white/5">
-                          <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">ID:{repo.id}</span>
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -532,38 +673,58 @@ function App() {
               
               {/* Fake Terminal Header */}
               <div className="h-12 bg-white/[0.03] border-b border-white/[0.08] flex items-center px-4 justify-between select-none">
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-center">
                       <div className="w-3 h-3 rounded-full bg-rose-500/80 shadow-[0_0_5px_rgba(244,63,94,0.5)]"></div>
                       <div className="w-3 h-3 rounded-full bg-amber-500/80 shadow-[0_0_5px_rgba(245,158,11,0.5)]"></div>
                       <div className="w-3 h-3 rounded-full bg-emerald-500/80 shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
                   </div>
+                  
                   <span className="text-[11px] font-mono text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                    ~/Magnus/execution-logs
-                    {builds.some(b => b.status.toLowerCase() === 'running') && (
+                    ~/Magnus/execution-logs{selectedRepo && `/${selectedRepo.name.toLowerCase()}`}
+                    {filteredBuilds.some(b => b.status.toLowerCase() === 'running') && (
                       <span className="flex h-2 w-2 relative">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
                         <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
                       </span>
                     )}
                   </span>
-                  <div className="w-12"></div> {/* Spacer for flex balance */}
+
+                  <div>
+                    {selectedRepo ? (
+                      <button 
+                        onClick={() => setSelectedRepo(null)}
+                        className="text-[10px] font-mono text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5 active:scale-[0.98]"
+                      >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                        ALL
+                      </button>
+                    ) : (
+                      <div className="w-12"></div>
+                    )}
+                  </div>
               </div>
 
               {/* Terminal Body */}
               <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-gradient-to-b from-transparent to-[#030303]">
-                {builds.length === 0 ? (
+                {filteredBuilds.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-6">
                     <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/5 shadow-inner">
                       <svg className="w-8 h-8 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
                     </div>
-                    <h3 className="text-white font-medium mb-1 font-mono text-sm">{">_"} AWAITING_COMMITS</h3>
-                    <p className="text-xs text-zinc-500 font-mono">Push to origin to trigger pipeline stream.</p>
+                    <h3 className="text-white font-medium mb-1 font-mono text-sm">
+                      {selectedRepo ? ">_ NO_EXECUTIONS" : ">_ AWAITING_COMMITS"}
+                    </h3>
+                    <p className="text-xs text-zinc-500 font-mono">
+                      {selectedRepo 
+                        ? `No execution history found for ${selectedRepo.name}.` 
+                        : "Push to origin to trigger pipeline stream."}
+                    </p>
                   </div>
                 ) : (
                   <div className="flex flex-col gap-5">
-                    {builds.map((build) => (
+                    {filteredBuilds.map((build) => (
                       <div key={build.id} className="relative pl-6 before:content-[''] before:absolute before:left-[11px] before:top-[30px] before:bottom-[-20px] before:w-px before:bg-white/[0.1] last:before:hidden">
                         {/* Timeline Dot */}
                         <div className="absolute left-0 top-1.5 w-6 h-6 rounded-full bg-[#050505] border border-white/10 flex items-center justify-center z-10">
@@ -575,7 +736,10 @@ function App() {
                           }`}></div>
                         </div>
                         
-                        <div className="p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl hover:border-white/15 hover:bg-white/[0.04] transition-all">
+                        <div
+                          onClick={() => setSelectedBuild(build)}
+                          className="p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl hover:border-white/15 hover:bg-white/[0.04] transition-all cursor-pointer"
+                        >
                           <div className="flex justify-between items-start mb-3">
                             <span className="font-bold text-zinc-200 text-sm flex items-center gap-2">
                               <svg className="w-3.5 h-3.5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
@@ -606,6 +770,74 @@ function App() {
           </section>
         </div>
       </main>
+
+      {/* Logs Modal */}
+      {selectedBuild && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#020202]/80 backdrop-blur-md">
+          <div className="w-full max-w-5xl h-[85vh] bg-[#050505] border border-white/[0.1] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative">
+            
+            {/* Modal Header */}
+            <div className="h-14 bg-white/[0.03] border-b border-white/[0.08] flex items-center px-5 justify-between select-none">
+              <div className="flex items-center gap-4">
+                <div className="flex gap-2">
+                  <button onClick={() => setSelectedBuild(null)} className="w-3.5 h-3.5 rounded-full bg-rose-500/80 hover:bg-rose-400 shadow-[0_0_8px_rgba(244,63,94,0.5)] transition-colors flex items-center justify-center group">
+                     <svg className="w-2.5 h-2.5 text-black opacity-0 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                  <div className="w-3.5 h-3.5 rounded-full bg-amber-500/80 shadow-[0_0_8px_rgba(245,158,11,0.5)]"></div>
+                  <div className="w-3.5 h-3.5 rounded-full bg-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                </div>
+                
+                <div className="h-5 w-px bg-white/10 mx-2"></div>
+                
+                <div className="flex items-center gap-3">
+                  <span className="text-zinc-200 font-bold text-sm">{selectedBuild.repository_name}</span>
+                  <span className="text-cyan-400 font-mono text-xs bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+                    {selectedBuild.commit_hash?.substring(0, 7) || "null"}
+                  </span>
+                  <span className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-md ${getStatusBadgeClass(selectedBuild.status)}`}>
+                    {selectedBuild.status}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                onClick={handleCopyLogs}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-zinc-300 transition-colors"
+              >
+                {copied ? (
+                  <><svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg> Copied</>
+                ) : (
+                  <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg> Copy Logs</>
+                )}
+              </button>
+            </div>
+
+            {/* Modal Body (Terminal) */}
+            <div className="flex-1 overflow-y-auto p-6 bg-[#020202] font-mono text-xs sm:text-sm text-zinc-300 custom-scrollbar">
+              {isLogsLoading && !logs ? (
+                 <div className="flex items-center justify-center h-full text-zinc-500 gap-3">
+                   <svg className="animate-spin h-5 w-5 text-cyan-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                   Loading logs stream...
+                 </div>
+              ) : (
+                <div className="whitespace-pre-wrap break-all leading-relaxed flex flex-col gap-1">
+                  {stripAnsi(logs).split('\n').map((line, idx) => (
+                    <div key={idx} className="hover:bg-white/[0.02] px-2 -mx-2 rounded transition-colors">{line || ' '}</div>
+                  ))}
+                  
+                  {['running', 'pending'].includes(selectedBuild.status?.toLowerCase()) && (
+                    <div className="flex gap-2 items-center mt-4">
+                      <span className="text-cyan-500">❯</span> 
+                      <span className="animate-pulse w-2.5 h-4 bg-cyan-400 inline-block shadow-[0_0_8px_rgba(34,211,238,0.8)]"></span>
+                    </div>
+                  )}
+                  <div ref={logsEndRef} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Internal Custom Scrollbar Styles for the builds list */}
       <style dangerouslySetInnerHTML={{__html: `

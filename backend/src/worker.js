@@ -7,6 +7,29 @@ const fs = require('fs').promises;
 const pool = require('./db');
 const { createWorkspace, cleanWorkspace } = require('./workspace');
 
+// --- Terminal Styling Helpers (ANSI Colors) ---
+const styles = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  cyan: '\x1b[36m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  red: '\x1b[31m',
+  magenta: '\x1b[35m',
+  blue: '\x1b[34m',
+  bgBlue: '\x1b[44m\x1b[37m',
+  bgGreen: '\x1b[42m\x1b[30m',
+  bgRed: '\x1b[41m\x1b[37m'
+};
+
+const getTimestamp = () => `${styles.dim}[${new Date().toISOString().split('T')[1].slice(0, 8)}]${styles.reset}`;
+const logWorker = (msg) => console.log(`${getTimestamp()} ${styles.magenta}${styles.bright}[WORKER]${styles.reset} ${msg}`);
+const logEngine = (msg) => `${getTimestamp()} ${styles.cyan}${styles.bright}[ENGINE]${styles.reset} ${msg}`;
+const logSuccess = (msg) => console.log(`${getTimestamp()} ${styles.bgGreen} SUCCESS ${styles.reset} ${styles.green}${msg}${styles.reset}`);
+const logError = (msg, err) => console.error(`${getTimestamp()} ${styles.bgRed} ERROR ${styles.reset} ${styles.red}${msg}${styles.reset}`, err || '');
+
+// --- Core Setup ---
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 const connection = {
   host: process.env.REDIS_HOST || '127.0.0.1',
@@ -25,9 +48,27 @@ const pullImage = (imageName) => {
   });
 };
 
+const saveLogs = async (buildId, logs) => {
+  try {
+    const res = await pool.query("SELECT id FROM build_logs WHERE build_id = $1", [buildId]);
+    if (res.rows.length > 0) {
+      await pool.query("UPDATE build_logs SET log_message = $1 WHERE build_id = $2", [logs, buildId]);
+    } else {
+      await pool.query("INSERT INTO build_logs (build_id, log_message) VALUES ($1, $2)", [buildId, logs]);
+    }
+  } catch (err) {
+    logError(`Failed to save DB logs for build ${buildId}`, err);
+  }
+};
+
+// --- Worker Loop ---
 const worker = new Worker('build-queue', async job => {
   const { buildId, repoUrl, commitHash } = job.data;
-  console.log(`[Worker] Picked up job for buildId: ${buildId}, repoUrl: ${repoUrl}`);
+  
+  console.log(`\n${styles.bright}${styles.blue}┌────────────────────────────────────────────────────────┐${styles.reset}`);
+  logWorker(`🚀 Job Picked Up | ${styles.bright}Build ID: ${buildId}${styles.reset}`);
+  logWorker(`📂 Repo: ${styles.dim}${repoUrl}${styles.reset} @ [${styles.yellow}${commitHash.slice(0, 7)}${styles.reset}]`);
+  console.log(`${styles.bright}${styles.blue}└────────────────────────────────────────────────────────┘${styles.reset}`);
 
   let workspacePath = '';
   let container = null;
@@ -39,22 +80,27 @@ const worker = new Worker('build-queue', async job => {
       "UPDATE builds SET status = 'RUNNING', started_at = NOW() WHERE id = $1",
       [buildId]
     );
-    console.log(`[Worker] Build ${buildId} marked as RUNNING.`);
+    logWorker(`Build status forced to ${styles.yellow}RUNNING${styles.reset}.`);
 
     // 2. Create local workspace
     workspacePath = await createWorkspace(buildId);
-    buildLogs += `[CI/CD Engine] Created workspace at ${workspacePath}\n`;
+    buildLogs += logEngine(`Created workspace path: ${styles.dim}${workspacePath}${styles.reset}\n`);
+    await saveLogs(buildId, buildLogs);
 
     // 3. Git Clone & Checkout
-    buildLogs += `[CI/CD Engine] Cloning repository: ${repoUrl} ...\n`;
+    buildLogs += logEngine(`Cloning repository... 📥\n`);
+    await saveLogs(buildId, buildLogs);
     const git = simpleGit();
     await git.clone(repoUrl, workspacePath);
-    buildLogs += `[CI/CD Engine] Repository cloned successfully.\n`;
+    buildLogs += logEngine(`${styles.green}✔ Repository cloned successfully.${styles.reset}\n`);
+    await saveLogs(buildId, buildLogs);
 
-    buildLogs += `[CI/CD Engine] Checking out commit: ${commitHash} ...\n`;
+    buildLogs += logEngine(`Checking out commit: ${styles.yellow}${commitHash}${styles.reset}\n`);
+    await saveLogs(buildId, buildLogs);
     const repoGit = simpleGit(workspacePath);
     await repoGit.checkout(commitHash);
-    buildLogs += `[CI/CD Engine] Checked out commit ${commitHash} successfully.\n`;
+    buildLogs += logEngine(`${styles.green}✔ Target commit successfully isolated.${styles.reset}\n`);
+    await saveLogs(buildId, buildLogs);
 
     // 4. Validate package.json
     const packageJsonExists = await fs.access(path.join(workspacePath, 'package.json'))
@@ -76,15 +122,15 @@ const worker = new Worker('build-queue', async job => {
     }
 
     if (!imageExists) {
-      console.log(`[Worker] Image ${imageName} not found locally. Pulling...`);
-      buildLogs += `[CI/CD Engine] Docker image ${imageName} not found locally. Pulling from Docker Hub...\n`;
+      logWorker(`Docker image ${imageName} missing locally. Pulling from hub...`);
+      buildLogs += logEngine(`Pulling base layer image: ${styles.magenta}${imageName}${styles.reset}...\n`);
       await pullImage(imageName);
-      buildLogs += `[CI/CD Engine] Docker image ${imageName} pulled successfully.\n`;
+      buildLogs += logEngine(`${styles.green}✔ Base layer cached successfully.${styles.reset}\n`);
     }
 
     // 6. Create isolated Docker Container
-    console.log(`[Worker] Creating container for build ${buildId}...`);
-    buildLogs += `[CI/CD Engine] Spawning isolated sandboxed container...\n`;
+    logWorker(`Spawning sandbox container for pipeline execution...`);
+    buildLogs += logEngine(`Configuring runtime container context...\n`);
 
     container = await docker.createContainer({
       Image: imageName,
@@ -104,13 +150,20 @@ const worker = new Worker('build-queue', async job => {
       stderr: true
     });
 
+    let lastLogSave = Date.now();
     logStream.on('data', (chunk) => {
-      buildLogs += chunk.toString();
+      const output = chunk.toString();
+      buildLogs += output;
+      process.stdout.write(output);
+      if (Date.now() - lastLogSave > 1000) {
+        saveLogs(buildId, buildLogs).catch(() => {});
+        lastLogSave = Date.now();
+      }
     });
 
     // Start container
     await container.start();
-    console.log(`[Worker] Container started for build ${buildId}.`);
+    logWorker(`Sandbox runtime container online.`);
 
     // 7. Implement timeout race condition (max 2 minutes)
     let timeoutId;
@@ -126,8 +179,8 @@ const worker = new Worker('build-queue', async job => {
     ]);
     clearTimeout(timeoutId);
 
-    buildLogs += `\n[CI/CD Engine] Container exited with code: ${exitCode}\n`;
-    console.log(`[Worker] Container for build ${buildId} exited with code: ${exitCode}`);
+    buildLogs += `\n` + logEngine(`Container execution exited with code: ${exitCode === 0 ? styles.green : styles.red}${exitCode}${styles.reset}\n`);
+    logWorker(`Runtime session killed. Status Code: ${exitCode}`);
 
     // Update status to SUCCESS or FAILED based on exit code
     const finalStatus = exitCode === 0 ? 'SUCCESS' : 'FAILED';
@@ -136,17 +189,12 @@ const worker = new Worker('build-queue', async job => {
       [finalStatus, buildId]
     );
 
-    // Save build logs to database
-    await pool.query(
-      "INSERT INTO build_logs (build_id, log_message) VALUES ($1, $2)",
-      [buildId, buildLogs]
-    );
+    await saveLogs(buildId, buildLogs);
 
   } catch (err) {
-    console.error(`[Worker] Error processing build ${buildId}:`, err);
-    buildLogs += `\n[CI/CD Engine] Build Failed. Error: ${err.message}\n`;
+    logError(`Build pipeline broken down at ID: ${buildId}`, err.message);
+    buildLogs += `\n` + logEngine(`${styles.red}❌ Operational breakdown: ${err.message}${styles.reset}\n`);
 
-    // Force stop container if it was running and threw an error (like timeout)
     if (container) {
       try {
         await container.stop();
@@ -160,25 +208,33 @@ const worker = new Worker('build-queue', async job => {
       [buildId]
     );
 
-    await pool.query(
-      "INSERT INTO build_logs (build_id, log_message) VALUES ($1, $2)",
-      [buildId, buildLogs]
-    );
+    await saveLogs(buildId, buildLogs);
   } finally {
-    // Clean up temporary workspace
     if (workspacePath) {
-      console.log(`[Worker] Cleaning up workspace for build ${buildId}...`);
+      logWorker(`Pruning operational file tree workspace...`);
       await cleanWorkspace(buildId);
     }
   }
 }, { connection });
 
+// --- Global Worker Events ---
 worker.on('completed', job => {
-  console.log(`[Worker] Job ${job.id} has completed!`);
+  logSuccess(`Job #${job.id} has fully executed and finished context routines.`);
 });
 
 worker.on('failed', (job, err) => {
-  console.log(`[Worker] Job ${job.id} has failed with ${err.message}`);
+  logError(`Job #${job.id} emitted standard failure trap event:`, err.message);
 });
 
-console.log("[Worker] Started and listening for jobs on build-queue...");
+worker.on('error', err => {
+  logError(`Worker queue error:`, err);
+});
+
+// --- Startup Banner ---
+console.clear();
+console.log(`
+${styles.cyan}${styles.bright} ┌────────────────────────────────────────────────────────┐
+ │ 🚀  CI/CD PIPELINE ENGINE WORKER ONLINE                │
+ │     Listening to queue: ${styles.yellow}build-queue${styles.cyan}                   │
+ └────────────────────────────────────────────────────────┘${styles.reset}
+`);
