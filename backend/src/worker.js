@@ -7,6 +7,8 @@ const fs = require('fs').promises;
 const pool = require('./db');
 const { createWorkspace, cleanWorkspace } = require('./workspace');
 const { updateGitHubStatus } = require('./utils/githubStatus');
+const { restoreCache, saveCache } = require('./utils/cache');
+
 
 // --- Terminal Styling Helpers (ANSI Colors) ---
 const styles = {
@@ -415,6 +417,8 @@ const worker = new Worker('build-queue', async job => {
   let container = null;
   let buildLogs = '';
   let statsInterval = null;
+  let cacheHash = null;
+
 
   try {
     // 1. Update status to RUNNING
@@ -478,31 +482,35 @@ const worker = new Worker('build-queue', async job => {
     const repoRes = await pool.query("SELECT repository_id FROM builds WHERE id = $1", [buildId]);
     const repositoryId = repoRes.rows[0]?.repository_id || 1;
 
+    // Restore dependency cache if available
+    buildLogs += logEngine(`Resolving dependency caching strategy...\n`);
+    await saveLogs(buildId, buildLogs);
+    const cacheResult = await restoreCache(workspacePath, language, repositoryId);
+    cacheHash = cacheResult.hash;
+    buildLogs += logEngine(`${cacheResult.success ? styles.green : styles.yellow}ℹ ${cacheResult.message}${styles.reset}\n`);
+    await saveLogs(buildId, buildLogs);
+
     // Determine cache bind mounts dynamically
     const binds = [`${workspacePath}:/app`];
-    const cachesBaseDir = path.join(__dirname, '../caches', String(repositoryId));
 
-    if (language === 'Node.js') {
-      const nodeModulesCache = path.join(cachesBaseDir, 'node_modules');
-      await fs.mkdir(nodeModulesCache, { recursive: true });
-      binds.push(`${nodeModulesCache}:/app/node_modules`);
-    } else if (language === 'Python') {
-      const pipCache = path.join(cachesBaseDir, 'pip_cache');
-      await fs.mkdir(pipCache, { recursive: true });
-      binds.push(`${pipCache}:/root/.cache/pip`);
+    if (language === 'Python') {
+      const localPipCache = path.join(workspacePath, '.pip_cache');
+      await fs.mkdir(localPipCache, { recursive: true });
+      binds.push(`${localPipCache}:/root/.cache/pip`);
     } else if (language.includes('Maven')) {
-      const mavenCache = path.join(cachesBaseDir, 'maven_m2');
-      await fs.mkdir(mavenCache, { recursive: true });
-      binds.push(`${mavenCache}:/root/.m2`);
+      const localMavenCache = path.join(workspacePath, '.m2_cache');
+      await fs.mkdir(localMavenCache, { recursive: true });
+      binds.push(`${localMavenCache}:/root/.m2`);
     } else if (language.includes('Gradle')) {
-      const gradleCache = path.join(cachesBaseDir, 'gradle');
-      await fs.mkdir(gradleCache, { recursive: true });
-      binds.push(`${gradleCache}:/root/.gradle`);
+      const localGradleCache = path.join(workspacePath, '.gradle_cache');
+      await fs.mkdir(localGradleCache, { recursive: true });
+      binds.push(`${localGradleCache}:/root/.gradle`);
     } else if (language === 'Go') {
-      const goCache = path.join(cachesBaseDir, 'go_mod');
-      await fs.mkdir(goCache, { recursive: true });
-      binds.push(`${goCache}:/go/pkg/mod`);
+      const localGoCache = path.join(workspacePath, '.go_cache');
+      await fs.mkdir(localGoCache, { recursive: true });
+      binds.push(`${localGoCache}:/go/pkg/mod`);
     }
+
 
     // 6. Create isolated Docker Container
     logWorker(`Spawning sandbox container for pipeline execution...`);
@@ -621,6 +629,14 @@ const worker = new Worker('build-queue', async job => {
     const testSummary = extractTestSummary(buildLogs, defaultMsg);
     const description = testSummary !== defaultMsg ? `${language}: ${testSummary}` : defaultMsg;
     await updateGitHubStatus(owner, repoName, commitHash, githubState, description, targetUrl);
+
+    if (finalStatus === 'SUCCESS' && cacheHash) {
+      buildLogs += `\n` + logEngine(`Compressing and archiving dependency cache...\n`);
+      await saveLogs(buildId, buildLogs);
+      const saveResult = await saveCache(workspacePath, language, repositoryId, cacheHash);
+      buildLogs += logEngine(`${saveResult.success ? styles.green : styles.yellow}ℹ ${saveResult.message}${styles.reset}\n`);
+      await saveLogs(buildId, buildLogs);
+    }
 
     if (finalStatus === 'FAILED') {
       const revertLog = await handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs);
