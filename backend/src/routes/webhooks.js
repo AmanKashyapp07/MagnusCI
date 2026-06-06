@@ -98,12 +98,16 @@ router.post("/github", verifyGithubSignature, async (req, res) => {
     );
 
     const buildId = buildResult.rows[0].id;
+    const branchName = (payload.ref && payload.ref.startsWith('refs/heads/'))
+      ? payload.ref.replace('refs/heads/', '')
+      : 'main';
 
     // Add job to the queue
     await buildQueue.add("run-build", {
       buildId: buildId,
       repoUrl: normalizedUrl,
-      commitHash: commitHash
+      commitHash: commitHash,
+      branchName: branchName
     });
 
     // 4. Return 202 Accepted immediately with build info

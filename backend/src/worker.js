@@ -203,9 +203,55 @@ const extractTestSummary = (logs, defaultMsg) => {
   return defaultMsg;
 };
 
+// --- Auto-Revert Commit Helper ---
+const handleRevertCommit = async (workspacePath, repoUrl, commitHash, branchName, buildId) => {
+  if (!process.env.GITHUB_TOKEN) {
+    logWorker(`[REVERT] No GITHUB_TOKEN configured. Cannot auto-revert commit.`);
+    return `\n[REVERT] No GITHUB_TOKEN configured. Cannot auto-revert commit.\n`;
+  }
+
+  let owner = '';
+  let repoName = '';
+  try {
+    const parts = repoUrl.split('/');
+    repoName = parts.pop().replace('.git', '');
+    owner = parts.pop();
+  } catch (e) {}
+
+  logWorker(`[REVERT] Initiating auto-revert of commit ${commitHash.slice(0, 7)} on branch ${branchName}...`);
+  let logOutput = `\n[REVERT] Auto-revert started for commit ${commitHash} on branch ${branchName}\n`;
+  
+  try {
+    const repoGit = simpleGit(workspacePath);
+    
+    // Configure identity so git doesn't complain about identity not set
+    await repoGit.addConfig('user.name', 'Magnus CI');
+    await repoGit.addConfig('user.email', 'ci@magnus.internal');
+    logOutput += `[REVERT] Configured git identity to Magnus CI.\n`;
+
+    // Embed GITHUB_TOKEN in remote URL for write/push permissions
+    const authenticatedUrl = repoUrl.replace('https://', `https://${process.env.GITHUB_TOKEN}@`);
+    await repoGit.remote(['set-url', 'origin', authenticatedUrl]);
+    logOutput += `[REVERT] Remote URL configured with GITHUB_TOKEN.\n`;
+
+    // Perform Revert
+    await repoGit.raw(['revert', '--no-edit', commitHash]);
+    logOutput += `[REVERT] Revert commit created locally.\n`;
+
+    // Push changes back to origin
+    await repoGit.push('origin', `HEAD:${branchName}`);
+    logOutput += `[REVERT] Revert commit successfully pushed to branch ${branchName}.\n`;
+    logWorker(`[REVERT] Revert commit successfully pushed to branch ${branchName}.`);
+  } catch (err) {
+    logOutput += `[REVERT] Error performing auto-revert: ${err.message}\n`;
+    logError(`[REVERT] Auto-revert failed for build ID ${buildId}:`, err.message);
+  }
+  return logOutput;
+};
+
 // --- Worker Loop ---
 const worker = new Worker('build-queue', async job => {
-  const { buildId, repoUrl, commitHash } = job.data;
+  const { buildId, repoUrl, commitHash, branchName = 'main' } = job.data;
   
   let owner = '';
   let repoName = '';
@@ -353,6 +399,11 @@ const worker = new Worker('build-queue', async job => {
     const description = testSummary !== defaultMsg ? `${language}: ${testSummary}` : defaultMsg;
     await updateGitHubStatus(owner, repoName, commitHash, githubState, description, targetUrl);
 
+    if (finalStatus === 'FAILED') {
+      const revertLog = await handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId);
+      buildLogs += revertLog;
+    }
+
     await saveLogs(buildId, buildLogs);
 
   } catch (err) {
@@ -373,6 +424,11 @@ const worker = new Worker('build-queue', async job => {
     );
 
     await updateGitHubStatus(owner, repoName, commitHash, 'error', 'Build error', targetUrl);
+
+    if (workspacePath) {
+      const revertLog = await handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId);
+      buildLogs += revertLog;
+    }
 
     await saveLogs(buildId, buildLogs);
   } finally {
