@@ -504,10 +504,12 @@ const worker = new Worker('build-queue', async job => {
     const repositoryId = repoRes.rows[0]?.repository_id || 1;
 
     // Restore dependency cache if available
+    logWorker(`Resolving dependency caching strategy...`);
     buildLogs += logEngine(`Resolving dependency caching strategy...\n`);
     await saveLogs(buildId, buildLogs);
     const cacheResult = await restoreCache(workspacePath, language, repositoryId);
     cacheHash = cacheResult.hash;
+    logWorker(`Cache result: ${cacheResult.message}`);
     buildLogs += logEngine(`${cacheResult.success ? styles.green : styles.yellow}ℹ ${cacheResult.message}${styles.reset}\n`);
     await saveLogs(buildId, buildLogs);
 
@@ -747,9 +749,11 @@ const worker = new Worker('build-queue', async job => {
     await updateGitHubStatus(owner, repoName, commitHash, githubState, description, targetUrl);
 
     if (finalStatus === 'SUCCESS' && cacheHash) {
+      logWorker(`Compressing and archiving dependency cache...`);
       buildLogs += `\n` + logEngine(`Compressing and archiving dependency cache...\n`);
       await saveLogs(buildId, buildLogs);
       const saveResult = await saveCache(workspacePath, language, repositoryId, cacheHash);
+      logWorker(`Cache save result: ${saveResult.message}`);
       buildLogs += logEngine(`${saveResult.success ? styles.green : styles.yellow}ℹ ${saveResult.message}${styles.reset}\n`);
       await saveLogs(buildId, buildLogs);
     }
