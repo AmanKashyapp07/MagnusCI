@@ -28,6 +28,8 @@ CREATE TABLE builds (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     started_at TIMESTAMP,
     finished_at TIMESTAMP,
+    artifacts JSONB DEFAULT '[]'::jsonb,
+    metrics JSONB DEFAULT '[]'::jsonb,
 
     FOREIGN KEY (repository_id)
         REFERENCES repositories(id)

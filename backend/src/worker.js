@@ -414,6 +414,7 @@ const worker = new Worker('build-queue', async job => {
   let workspacePath = '';
   let container = null;
   let buildLogs = '';
+  let statsInterval = null;
 
   try {
     // 1. Update status to RUNNING
@@ -541,6 +542,41 @@ const worker = new Worker('build-queue', async job => {
     await container.start();
     logWorker(`Sandbox runtime container online.`);
 
+    const metrics = [];
+    statsInterval = setInterval(async () => {
+      if (!container) return;
+      try {
+        const stats = await container.stats({ stream: false });
+        if (!stats || !stats.cpu_stats || !stats.memory_stats) return;
+
+        // Parse CPU percentage
+        let cpuPercent = 0;
+        const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - (stats.precpu_stats?.cpu_usage?.total_usage || 0);
+        const systemDelta = stats.cpu_stats.system_cpu_usage - (stats.precpu_stats?.system_cpu_usage || 0);
+        const onlineCpus = stats.cpu_stats.online_cpus || 1;
+        if (systemDelta > 0 && cpuDelta > 0) {
+          cpuPercent = parseFloat(((cpuDelta / systemDelta) * onlineCpus * 100.0).toFixed(2));
+        }
+
+        // Parse Memory usage
+        const memUsageBytes = stats.memory_stats.usage || 0;
+        const memUsageMB = parseFloat((memUsageBytes / (1024 * 1024)).toFixed(2));
+        const memLimitBytes = stats.memory_stats.limit || 1;
+        const memPercent = parseFloat(((memUsageBytes / memLimitBytes) * 100.0).toFixed(2));
+
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        metrics.push({ time, cpu: cpuPercent, memory: memUsageMB, memoryPercent: memPercent });
+
+        // Save to DB
+        await pool.query(
+          "UPDATE builds SET metrics = $1 WHERE id = $2",
+          [JSON.stringify(metrics), buildId]
+        );
+      } catch (statsErr) {
+        clearInterval(statsInterval);
+      }
+    }, 2000);
+
     // 7. Implement timeout race condition (max 2 minutes)
     let timeoutId;
     const timeoutPromise = new Promise((_, reject) => {
@@ -627,6 +663,9 @@ const worker = new Worker('build-queue', async job => {
 
     await saveLogs(buildId, buildLogs);
   } finally {
+    if (statsInterval) {
+      clearInterval(statsInterval);
+    }
     if (workspacePath) {
       logWorker(`Pruning operational file tree workspace...`);
       await cleanWorkspace(buildId);
