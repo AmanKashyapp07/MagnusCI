@@ -95,6 +95,8 @@ flowchart TD
 │       └── utils/
 │           └── logParser.js       # Cleans and formats ANSI-escaped terminal logs
 │
+├── deployment.md                  # Comprehensive Production Deployment & Hardening Guide
+│
 ├── worker/                        # Node.js Worker dependencies directory
 │   └── package.json
 │
@@ -114,6 +116,8 @@ flowchart TD
 ---
 
 ## Getting Started
+
+For a comprehensive guide to deploying MagnusCI in a production-ready environment (using Nginx, PM2, or Docker Compose), refer to the [deployment.md](file:///Users/amankashyap/Documents/ci-cd-engine/deployment.md) guide.
 
 ### Prerequisites
 * **Node.js** (v20+)
