@@ -1,123 +1,67 @@
-# Git-Triggered Headless CI/CD Automation Engine (MagnusCI)
+# MagnusCI: Enterprise-Grade CI/CD Orchestration Engine 🚀
 
-A premium, high-performance, asynchronous CI/CD orchestration infrastructure designed to simulate the core code ingestion and build pipelines of modern platforms like Vercel, Netlify, and GitHub Actions. This system validates advanced concepts in distributed systems, cryptographic signature verification, background queueing, programmatically managed container sandboxes, live terminal stream multiplexing, resource metrics monitoring, build artifact harvesting, and automatic commit reversion.
+A high-performance, asynchronous CI/CD infrastructure designed to simulate the core code ingestion and build pipelines of modern platforms like Vercel and GitHub Actions. 
 
----
-
-## The "Shared Book" Analogy
-
-If you have never used cloud build services before, think of MagnusCI as a **Robotic Proofreader** for a book written by a collaborative team:
-* **The Push (The Alert)**: A writer saves a draft (code pushed to **GitHub**). A bell rings to alert the assistant (**Our Ingest Gateway**).
-* **The Redis Broker (The Queue)**: If multiple writers save at the same time, the assistant places the drafts in a neat, organized line (**Our Redis/BullMQ Queue**) to check them one by one.
-* **The Sandbox (Docker Container)**: The assistant takes a copy of the draft into a separate, isolated room (**Our isolated Docker Container**) so they can run checking scripts without messing up the main manuscript or other rooms.
-* **The Dependency Caching (The Smart Pantry)**: The assistant remembers the exact list of reference materials needed. If the list hasn't changed, they retrieve them instantly from a local storage box rather than driving to the bookstore, making checks 90% faster.
-* **The Live Feed (The Dashboard)**: A dashboard (**Our React Frontend**) displays a pulsing status light and lists spelling mistakes or test reports in real-time.
-* **The Auto-Revert (The Undo Action)**: If a writer submits a draft that completely ruins the book, the system automatically marks the draft as failed, logs the exact errors, and reverses the changes to restore the manuscript.
+This engine validates advanced concepts in distributed systems, cryptographic signature verification, background queueing, programmatic Docker sandboxing, real-time telemetry streaming, and self-healing auto-revert logic.
 
 ---
 
-## Key Features (Latest Version)
-
-* **Cryptographic Ingestion Gateway**: Exposes a secure, lightning-fast $O(1)$ Express endpoint verifying raw payloads via SHA-256 HMAC signatures (`X-Hub-Signature-256`) in under 30ms.
-* **DAG (Directed Acyclic Graph) Pipeline Coordinator**: Parses stage dependency trees inside `magnus-ci.json` (or language fallbacks) to execute compilation, linting, and testing stages concurrently or sequentially while detecting circular dependencies.
-* **Lockfile-Hashed Dependency Caching**: Speeds up build executions by hashing lockfiles (`package-lock.json`, `requirements.txt`, `go.sum`, etc.) via SHA-256, mapping hits to localized tarball caches stored on the host.
-* **Multi-Language Sandbox Execution**: Programmatically communicates with the host Unix domain socket (`/var/run/docker.sock`) via `dockerode` to spawn isolated, language-specific containers (Node, Python, Go, Maven, Gradle, CMake, Make) with custom volume mounts and 2-minute timeouts.
-* **Container Resource Metrics Monitoring**: Periodically polls active Docker containers to track CPU and memory usage, writing aggregate telemetry back to PostgreSQL for real-time visualization.
-* **Auto-Revert Commit Engine**: If a build fails, the worker uses the configured `GITHUB_TOKEN` to generate a local Git revert commit containing detailed test failure logs and pushes it back to the remote repository automatically.
-* **Live Log Streaming & Multiplexing**: Captures and prefixes concurrent stage logs on the fly, streaming ANSI-stripped and spinner-filtered output logs back to the developer.
-* **Build Artifact Harvesting**: Auto-detects, extracts, and exposes compiled binaries (.jar, .war, .zip, .exe, .msi, etc.) and code coverage reports (Jest/pytest htmlcov) in a static public assets folder.
-* **GitHub Status API Handshake**: Integrates build tracking updates directly back to GitHub's commit statuses interface (marking commits as pending, success, failure, or error).
-* **Premium Developer Dashboard**: React SPA styled with **Tailwind CSS v4** featuring secure GitHub OAuth login, repository connection, live interactive TTY console modal, and container metrics charts.
+## 🏗️ The Architecture (How it Works)
+MagnusCI acts as a **Robotic Infrastructure Engineer** for your codebase:
+* **The Push (The Alert)**: A developer pushes code to GitHub. A webhook instantly alerts our **Express.js Ingestion Gateway**.
+* **The Broker (The Queue)**: To prevent crashing under high traffic, the gateway places incoming payloads into a highly fault-tolerant **Redis / BullMQ Queue**.
+* **The Sandbox (Docker)**: The Node.js Worker daemon pulls the job, mounts the host's `/var/run/docker.sock`, and programmatically spawns isolated, ephemeral Docker containers (e.g., `node:20-alpine`) to run checks without compromising host security.
+* **The Smart Pantry (Dependency Caching)**: To reduce build times by 90%, the engine compresses `node_modules` into `.tar.gz` archives and instantly restores them on the next build, completely bypassing internet downloads.
+* **The Live Feed (React Dashboard)**: The React frontend connects via WebSockets/SSE to stream live, ANSI-formatted terminal logs and visualize real-time Docker CPU/Memory telemetry.
+* **Self-Healing (Auto-Revert)**: If a developer pushes broken tests, the engine calculates a reverse diff via the GitHub API and **autonomously pushes a revert commit** to save the main branch.
 
 ---
 
-## Technical Architecture & Workflow
+## ⚡ Core Features
 
-```mermaid
-flowchart TD
-    A[GitHub Push / Mock Event] -->|1. POST Request with HMAC signature| B(API Ingestion Gateway: Port 5001)
-    B -->|2. Verify Signature & Create Records| C[(PostgreSQL Database)]
-    B -->|3. Enqueue Job| D[(Redis Task Queue / BullMQ)]
-    D -->|4. Pull Build Task| E[Worker Pool]
-    E -->|5. Resolve Cache, Mount Workspace & Run DAG| F[Isolated Docker Container]
-    F -->|6. Capture CPU/Memory Metrics| G[(Telemetry Stats)]
-    F -->|7. Stream stdout/stderr & prefix| H[Socket.io / SSE Stream]
-    H -->|8. Live Terminal Feed & Metrics Charts| I[Developer Dashboard React]
-    E -->|9. Clean up containers & volumes| J[Garbage Collection]
-```
+* **Cryptographic Webhook Ingestion**: Verifies raw GitHub payloads via SHA-256 HMAC signatures (`X-Hub-Signature-256`) in $O(1)$ time (<30ms).
+* **DAG (Directed Acyclic Graph) Execution**: Parses dependency trees inside `magnus-ci.json`. It runs independent stages (like `lint` and `test`) in **parallel** across multiple Docker containers to slash execution time.
+* **Lockfile-Hashed Dependency Caching**: Hashes `package-lock.json` via SHA-256. On a cache hit, it instantly unzips localized tarball caches instead of running `npm install`.
+* **Programmatic Container Orchestration**: Bypasses the Docker CLI entirely. Uses `dockerode` to communicate directly with the Docker Engine HTTP API for volume mounting and exit-code monitoring.
+* **Real-time Telemetry Polling**: Polls the Docker daemon every 2 seconds to track Peak and Average CPU/Memory footprints, pushing them to the PostgreSQL database for React rendering.
+* **The "Auto-Revert" Circuit Breaker**: If a build fails with `Exit Code 1`, the worker generates a local Git revert commit containing the exact Jest failure logs and pushes it back to GitHub. The API Gateway employs a circuit-breaker to ignore webhooks authored by "Magnus CI" to prevent infinite loops.
+* **Premium Developer Dashboard**: Built with React and **Tailwind CSS v4**. Features secure GitHub OAuth, repository selection, and a beautiful interactive TTY console modal.
 
 ---
 
-## Repository Layout
+## 📂 Repository Structure
 
 ```text
 .
-├── backend/                       # Express server, Ingestion Gateway, Worker
+├── backend/                       # Express server, Ingestion Gateway, Worker Daemon
 │   ├── db.sql                     # PostgreSQL schema setup
-│   ├── package.json               # Backend dependencies (express, pg, dockerode, bullmq)
-│   ├── caches/                    # Persistent caching directory for tarballs
-│   │   └── tarballs/
-│   ├── temp_builds/               # Auto-generated isolated build workspaces
-│   └── src/                       # Backend Source Code
+│   ├── caches/tarballs/           # Persistent caching directory for dependencies
+│   ├── temp_builds/               # Ephemeral, isolated build workspaces
+│   └── src/                       
 │       ├── index.js               # Entry point of the Express Gateway (Port 5001)
-│       ├── db.js                  # PostgreSQL Connection Pool configuration
 │       ├── queue.js               # BullMQ (Redis) Queue configuration
-│       ├── workspace.js           # Ephemeral workspace directory creators & sweepers
-│       ├── worker.js              # Background BullMQ job processor & Docker sandbox executor
-│       ├── middleware/
-│       │   └── authMiddleware.js  # Secures API endpoints via JWT session validation
-│       ├── routes/
-│       │   ├── auth.js            # GitHub OAuth routes & JWT token generation
-│       │   ├── repositories.js    # Registering & fetching repositories (URL Normalization)
-│       │   ├── builds.js          # Fetching historical builds & logs
-│       │   └── webhooks.js        # Validating webhook signatures & enqueuing builds
-│       └── utils/
-│           ├── cache.js           # Lockfile hashing & dependency caching operations
-│           ├── dag.js             # Pipeline stages DAG resolution and scheduler
-│           └── githubStatus.js    # Integrating commit status updates with GitHub API
+│       ├── worker.js              # Background daemon & Docker sandbox executor
+│       ├── routes/                # Auth, Repositories, Builds, and Webhooks
+│       └── utils/                 # DAG parser, Cache compressor, GitHub API logic
 │
 ├── frontend/                      # React SPA Developer Dashboard
-│   ├── index.html
-│   ├── vite.config.js             # Vite configuration with Tailwind CSS v4 support
-│   ├── package.json               # Frontend dependencies (react, tailwindcss)
-│   └── src/
-│       ├── App.jsx                # Main dashboard UI (OAuth states, repo lists, logs)
-│       ├── App.css                # Premium styling custom layouts (Tailwind v4)
-│       ├── main.jsx               # React DOM entry point
-│       ├── components/
-│       │   ├── Header.jsx         # App header with connection indicators
-│       │   ├── MetricsRow.jsx     # High-level counters for repos, builds, success rates
-│       │   ├── MetricsChart.jsx   # Visualizes CPU and Memory utilization trends
-│       │   ├── ConnectRepoCard.jsx# Connect repo form card
-│       │   ├── RepoList.jsx       # Selectable list of active projects
-│       │   ├── BuildHistory.jsx   # Interactive execution history grid
-│       │   └── BuildModal.jsx     # Detailed TTY logging modal and downloader
-│       └── utils/
-│           └── logParser.js       # Cleans and formats ANSI-escaped terminal logs
+│   ├── src/
+│   │   ├── App.jsx                # Main dashboard UI (OAuth states, repo lists)
+│   │   ├── components/            # MetricsChart, BuildModal, RepoList
+│   │   └── utils/logParser.js     # Cleans and formats ANSI-escaped terminal logs
 │
-├── deployment.md                  # Comprehensive Production Deployment & Hardening Guide
-│
-├── worker/                        # Node.js Worker dependencies directory
-│   └── package.json
-│
-└── reports/                       # Project Documentation & Architecture Guides
-    ├── all_about_docker.md        # Containerization basics
-    ├── combined_first_principles_report.md # Deep-dive on security, queues, and sockets
-    ├── dag_execution_analysis.md  # Step-by-step parallel stage execution proof
-    ├── dependency_caching.md      # Lockfile dependency cache architecture
-    ├── docker_testing_tutorial.md # Container testing validation guide
-    ├── file_structure_explanation.md # Full workspace file breakdown
-    ├── github_webhook_testing_guide.md # Local webhook verification guide
-    ├── internals.md               # Detailed internal mechanics
-    ├── manual_testing_guide.md    # Feature verification guide
-    └── project_overview.md        # Big picture workflow summary
+└── interview/                     # 🚀 INTERVIEW PREP & ARCHITECTURE GUIDES
+    ├── demo_strategy.md           # Instructions for live demonstrations
+    ├── deployment_guide.md        # Monolith vs Kubernetes scaling strategies
+    ├── docker.md                  # Deep dive on Namespaces, Cgroups, and DooD
+    ├── database_schema.md         # Relational breakdown of Users/Repos/Builds
+    ├── qna.md                     # General technical Q&A
+    └── qna2.md                    # Advanced "Senior Engineer" Q&A (Auto-Revert, Security)
 ```
 
 ---
 
-## Getting Started
-
-For a comprehensive guide to deploying MagnusCI in a production-ready environment (using Nginx, PM2, or Docker Compose), refer to the [deployment.md](file:///Users/amankashyap/Documents/ci-cd-engine/deployment.md) guide.
+## 🚀 Getting Started Locally
 
 ### Prerequisites
 * **Node.js** (v20+)
@@ -126,14 +70,10 @@ For a comprehensive guide to deploying MagnusCI in a production-ready environmen
 * **Docker** (running on host, with Unix socket accessible at `/var/run/docker.sock`)
 
 ### 1. Database Setup
-Create a PostgreSQL database named `ci_cd_engine` and initialize the schema using `backend/db.sql`:
-```bash
-createdb ci_cd_engine
-psql -d ci_cd_engine -f backend/db.sql
-```
+Create a PostgreSQL database named `ci_cd_engine` and initialize the schema using `backend/db.sql`.
 
 ### 2. Environment Configuration
-Create a `.env` file inside the `backend` directory. Populate it with the required authentication, queue, and GitHub tokens:
+Create a `.env` file inside the `backend` directory:
 ```env
 PORT=5001
 GITHUB_WEBHOOK_SECRET=your_webhook_secret_here
@@ -145,32 +85,34 @@ REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 GITHUB_TOKEN=your_personal_access_token_with_repo_scope
 ```
-> [!NOTE]
-> The `GITHUB_TOKEN` is critical to enable the Status API updates and automated Git Revert Commit functionality on build failures.
+> **Note:** The `GITHUB_TOKEN` is critical to enable the Status API updates and automated Git Revert Commit functionality.
 
-### 3. Run the Backend & Worker Daemon
-Navigate to the `backend` directory, install dependencies, and start the gateway and worker processor:
+### 3. Start the Infrastructure
+**Terminal 1 (Backend & Worker):**
 ```bash
 cd backend
 npm install
-npm run dev
+node src/worker.js # Starts the Daemon
 ```
-*The Express Ingestion Gateway will boot on port `5001`, establish PostgreSQL pool links, and instantiate the BullMQ Worker loop.*
 
-### 4. Run the Developer Dashboard
-Navigate to the `frontend` directory, install package dependencies, and run Vite:
+**Terminal 2 (API Gateway):**
+```bash
+cd backend
+npm run dev # Starts the Express Gateway on 5001
+```
+
+**Terminal 3 (Frontend):**
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev # Starts Vite on 5173
 ```
-*Vite serves the UI locally (usually on [http://localhost:5173](http://localhost:5173)).*
 
 ---
 
-## Advanced Pipeline Customization (magnus-ci.json)
+## ⚙️ Advanced Pipeline Customization (`magnus-ci.json`)
 
-To orchestrate complex workflows, you can place a `magnus-ci.json` configuration file at the root of your target repository:
+To orchestrate complex workflows, place a `magnus-ci.json` file at the root of your target repository. The DAG algorithm will parse the `"needs"` arrays to execute parallel stages!
 
 ```json
 {
@@ -178,7 +120,7 @@ To orchestrate complex workflows, you can place a `magnus-ci.json` configuration
   "image": "node:20-alpine",
   "stages": {
     "setup": {
-      "run": "npm install"
+      "run": "npm ci"
     },
     "lint": {
       "run": "npm run lint",
@@ -195,19 +137,4 @@ To orchestrate complex workflows, you can place a `magnus-ci.json` configuration
   }
 }
 ```
-* **Language Fallbacks**: If no configuration is present, the engine auto-detects toolchains (Node.js, Go, Python, Maven, Gradle, CMake, Make) and applies optimized baseline execution presets.
-* **Dependencies (needs)**: Defines graph nodes. In the configuration above, `lint` and `test` run in parallel once `setup` finishes. `compile` executes only after both quality checks pass.
-
----
-
-## Verification & Testing
-
-### Manual Dashboard Audits
-1. Open http://localhost:5173.
-2. Authenticate using GitHub OAuth.
-3. Register your repository URL (URLs are normalized automatically).
-4. Watch build processes execute:
-   * **Telemetry**: View real-time container CPU and Memory metrics charts.
-   * **Console Modal**: Stream live terminal outputs prefixed by active stages (e.g. `[SETUP]`, `[TEST]`).
-   * **Reverts**: Verify that pushing a broken test commit triggers an automated `[REVERT]` routine that reverts the commit on your branch.
-   * **Artifacts**: Download harvested binaries or browse HTML test coverage outputs.
+*Because `lint` and `test` both only need `setup`, MagnusCI will spawn two Docker containers and run them simultaneously!*
