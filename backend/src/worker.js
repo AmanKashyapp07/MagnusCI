@@ -448,8 +448,8 @@ const worker = new Worker('build-queue', async job => {
   const targetUrl = `${frontendUrl}/`;
 
   console.log(`\n${styles.bright}${styles.blue}┌────────────────────────────────────────────────────────┐${styles.reset}`);
-  logWorker(`🚀 Job Picked Up | ${styles.bright}Build ID: ${buildId}${styles.reset}`);
-  logWorker(`📂 Repo: ${styles.dim}${repoUrl}${styles.reset} @ [${styles.yellow}${commitHash.slice(0, 7)}${styles.reset}]`);
+  logWorker(` Job Picked Up | ${styles.bright}Build ID: ${buildId}${styles.reset}`);
+  logWorker(` Repo: ${styles.dim}${repoUrl}${styles.reset} @ [${styles.yellow}${commitHash.slice(0, 7)}${styles.reset}]`);
   console.log(`${styles.bright}${styles.blue}└────────────────────────────────────────────────────────┘${styles.reset}`);
 
   let workspacePath = '';
@@ -827,8 +827,13 @@ worker.on('error', err => {
 // --- Startup Banner ---
 console.clear();
 console.log(`
-${styles.cyan}${styles.bright} ┌────────────────────────────────────────────────────────┐
- │ 🚀  CI/CD PIPELINE ENGINE WORKER ONLINE                │
- │     Listening to queue: ${styles.yellow}build-queue${styles.cyan}                   │
- └────────────────────────────────────────────────────────┘${styles.reset}
+${styles.magenta}${styles.bright}========================================================================
+█▀▄▀█  ▄▀█  █▀▀  █▄░█  █░█  █▀    █▀▀  █
+█░▀░█  █▀█  █▄█  █░▀█  █▄█  ▄█    █▄▄  █
+========================================================================${styles.reset}
+${styles.cyan}${styles.bright} 🚀  Engine Daemon Online
+ 📡  Awaiting Webhooks on: ${styles.yellow}build-queue${styles.cyan}
+ 🛡️   Auto-Revert System: ${styles.green}Enabled${styles.cyan}
+ 📦  Docker API Connected: ${styles.green}true${styles.cyan}
+${styles.magenta}${styles.bright}========================================================================${styles.reset}
 `);
