@@ -15,7 +15,7 @@ async function updateGitHubStatus(owner, repo, sha, state, description, targetUr
       body: JSON.stringify({
         state, // 'pending', 'success', 'error', or 'failure'
         description,
-        context: 'ci/magnus',
+        context: 'Magnus CI / Pipeline Status',
         target_url: targetUrl
       })
     });

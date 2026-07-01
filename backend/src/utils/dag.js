@@ -5,8 +5,9 @@ const path = require('path');
 const PRESETS = {
   'Node.js': {
     stages: {
-      'install': { run: 'npm install' },
-      'test': { run: 'npm test', needs: 'install' }
+      'setup': { run: 'npm ci || npm install' },
+      'test': { run: 'npm test -- --passWithNoTests', needs: 'setup' },
+      'build': { run: 'npm run build --if-present', needs: 'setup' }
     }
   },
   'Python': {

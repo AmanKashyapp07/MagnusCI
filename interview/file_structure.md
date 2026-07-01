@@ -352,24 +352,20 @@ Takes `name` and `github_url` as inputs, sends `POST /api/repositories/`, then r
 ### Flow 1: GitHub Push → Build Triggered
 
 ```mermaid
-sequenceDiagram
-    participant GH as GitHub
-    participant GW as webhooks.js (Gateway)
-    participant DB as PostgreSQL
-    participant Q as Redis / BullMQ
-
-    GH->>GW: POST /api/webhooks/github {payload, X-Hub-Signature-256}
-    GW->>GW: Recompute HMAC SHA-256 of rawBody
-    GW->>GW: crypto.timingSafeEqual() → Valid?
-    GW->>GW: Filter: is event type "push"?
-    GW->>GW: Normalize repo URL
-    GW->>DB: SELECT id FROM repositories WHERE github_url = ?
-    DB-->>GW: repoId (or INSERT new repo)
-    GW->>DB: INSERT INTO webhook_events
-    GW->>DB: INSERT INTO builds (status='PENDING') RETURNING id
-    DB-->>GW: buildId
-    GW->>Q: buildQueue.add("run-build", {buildId, repoUrl, commitHash, branchName})
-    GW->>GH: 202 Accepted {buildId}
+flowchart TD
+    A[GitHub Push Event] -->|HTTP POST with X-Hub-Signature-256| B[webhooks.js Gateway]
+    B -->|1. Compute HMAC SHA-256| C{Timing-safe match?}
+    C -->|No| D[401 Unauthorized / Reject]
+    C -->|Yes| E{Is event push?}
+    E -->|No| F[Ignore Webhook]
+    E -->|Yes| G[Normalize GitHub Repo URL]
+    G -->|Query DB| H{Repo exists in DB?}
+    H -->|No| I[Insert new Repository]
+    H -->|Yes| J[Insert pending Webhook Event]
+    I --> J
+    J --> K[Insert Build Record status: PENDING]
+    K --> L[Add Build Job to BullMQ Queue]
+    L --> M[Return 202 Accepted to GitHub]
 ```
 
 ---
@@ -415,31 +411,22 @@ flowchart TD
 ### Flow 3: User Login (GitHub OAuth)
 
 ```mermaid
-sequenceDiagram
-    participant Browser
-    participant FE as React App (App.jsx)
-    participant BE as auth.js (Backend)
-    participant GH as GitHub API
-    participant DB as PostgreSQL
-
-    Browser->>FE: Click "Login with GitHub"
-    FE->>BE: GET /api/auth/github
-    BE->>Browser: Redirect → github.com/login/oauth/authorize
-    Browser->>GH: User approves OAuth
-    GH->>BE: GET /api/auth/github/callback?code=xyz
-    BE->>GH: POST /login/oauth/access_token {code, client_id, client_secret}
-    GH-->>BE: {access_token}
-    BE->>GH: GET /user {Authorization: token access_token}
-    GH-->>BE: {id, login, avatar_url}
-    BE->>DB: SELECT/INSERT user by github_id
-    DB-->>BE: userId
-    BE->>BE: jwt.sign({id, username}, JWT_SECRET, {expiresIn: "7d"})
-    BE->>Browser: Redirect → localhost:5173?token=<JWT>
-    FE->>FE: Read token from URL, store in localStorage
-    FE->>BE: GET /api/auth/me {Authorization: Bearer <JWT>}
-    BE->>BE: authMiddleware: jwt.verify + DB user lookup
-    BE-->>FE: {id, username, avatar_url}
-    FE->>Browser: Render authenticated dashboard
+flowchart TD
+    A[Browser: Click 'Login with GitHub'] --> B[React App: Fetch GET /api/auth/github]
+    B --> C[Backend auth.js: Redirect to GitHub Authorize URL]
+    C --> D[Browser: User approves OAuth on github.com]
+    D --> E[GitHub: Redirect to Callback Callback API with auth code]
+    E --> F[Backend auth.js: Fetch Access Token from GitHub]
+    F --> G[GitHub API: Return Access Token]
+    G --> H[Backend auth.js: Request User Details /user]
+    H --> I[GitHub API: Return User Profile info]
+    I --> J[Backend auth.js: Query/Insert User in Postgres]
+    J --> K[Backend auth.js: Sign JWT Auth Token]
+    K --> L[Browser: Redirect to React App URL with JWT]
+    L --> M[React App: Store JWT in localStorage]
+    M --> N[React App: Fetch /api/auth/me with Bearer token]
+    N --> O[Backend middleware: Verify JWT and return profile]
+    O --> P[React App: Render Authenticated Dashboard]
 ```
 
 ---
@@ -447,28 +434,19 @@ sequenceDiagram
 ### Flow 4: Live Log Streaming (Running Build)
 
 ```mermaid
-sequenceDiagram
-    participant Worker
-    participant Docker
-    participant SocketIO as Socket.io Server
-    participant FE as BuildModal.jsx
-
-    FE->>SocketIO: connect() + join room "build:50"
-    Worker->>Docker: createContainer + start()
-    Worker->>Docker: attach({stream: true, stdout: true, stderr: true})
-    Docker-->>Worker: Readable log stream
-    loop Every chunk
-        Docker->>Worker: stdout/stderr chunk
-        Worker->>Worker: Prefix with [STAGE_NAME]
-        Worker->>SocketIO: io.to("build:50").emit("log-chunk", chunk)
-        SocketIO->>FE: "log-chunk" event
-        FE->>FE: Append to terminal display + auto-scroll
-    end
-    Docker-->>Worker: Container exits (code 0 or 1)
-    Worker->>DB: Save full accumulated log to build_logs
-    Worker->>SocketIO: io.to("build:50").emit("build-complete", status)
-    SocketIO->>FE: "build-complete" event
-    FE->>FE: Show final status badge
+flowchart TD
+    A[React App: Open Build Modal] --> B[React App: Join room build:id via WebSockets]
+    B --> C[Worker: Spawns and starts Docker container]
+    C --> D[Worker: Attach to container stdout/stderr streams]
+    D --> E[Docker: Streams raw build log chunks]
+    E --> F[Worker: Prefixes chunk with Stage name]
+    F --> G[Worker: Emit log-chunk to Socket.io Room]
+    G --> H[React App: Receive chunk & append to Terminal UI]
+    H --> I[React App: Auto-scroll terminal container using useRef]
+    I -->|Repeat for all chunks| E
+    E -->|Execution exits| J[Worker: Save full logs text to PostgreSQL]
+    J --> K[Worker: Emit build-complete via WebSockets]
+    K --> L[React App: Show final green/red status badge]
 ```
 
 ---
@@ -476,7 +454,7 @@ sequenceDiagram
 ### Flow 5: DAG Parallel Stage Execution
 
 ```mermaid
-flowchart LR
+flowchart TD
     A[Load magnus-ci.json] --> B[Parse 4 stages]
     B --> C[hasCycle DFS check]
     C --> D{Cycle found?}

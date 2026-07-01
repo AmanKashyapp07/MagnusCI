@@ -137,7 +137,7 @@ const detectProjectContext = async (workspacePath) => {
     return {
       language: 'Node.js',
       imageName: 'node:20-alpine',
-      runCommand: 'npm install && npm test'
+      runCommand: 'npm ci || npm install && npm test -- --passWithNoTests && npm run build --if-present'
     };
   }
 
@@ -468,7 +468,7 @@ const worker = new Worker('build-queue', async job => {
     );
     logWorker(`Build status forced to ${styles.yellow}RUNNING${styles.reset}.`);
     
-    await updateGitHubStatus(owner, repoName, commitHash, 'pending', 'Build started', targetUrl);
+    await updateGitHubStatus(owner, repoName, commitHash, 'pending', 'Pipeline execution in progress...', targetUrl);
 
     // 2. Create local workspace
     workspacePath = await createWorkspace(buildId);
@@ -743,7 +743,7 @@ const worker = new Worker('build-queue', async job => {
     );
 
     const githubState = exitCode === 0 ? 'success' : 'failure';
-    const defaultMsg = `Build ${finalStatus.toLowerCase()}`;
+    const defaultMsg = finalStatus === 'SUCCESS' ? 'All checks passed seamlessly' : 'Pipeline execution failed';
     const testSummary = extractTestSummary(buildLogs, defaultMsg);
     const description = testSummary !== defaultMsg ? `${language}: ${testSummary}` : defaultMsg;
     await updateGitHubStatus(owner, repoName, commitHash, githubState, description, targetUrl);
@@ -792,7 +792,7 @@ const worker = new Worker('build-queue', async job => {
       [JSON.stringify(artifacts), buildId]
     );
 
-    await updateGitHubStatus(owner, repoName, commitHash, 'error', 'Build error', targetUrl);
+    await updateGitHubStatus(owner, repoName, commitHash, 'error', 'Critical worker failure during execution', targetUrl);
 
     if (workspacePath) {
       const revertLog = await handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs);

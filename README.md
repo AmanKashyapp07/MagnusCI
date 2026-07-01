@@ -6,7 +6,7 @@ This engine validates advanced concepts in distributed systems, cryptographic si
 
 ---
 
-## 🏗️ The Architecture (How it Works)
+## The Architecture (How it Works)
 MagnusCI acts as a **Robotic Infrastructure Engineer** for your codebase:
 * **The Push (The Alert)**: A developer pushes code to GitHub. A webhook instantly alerts our **Express.js Ingestion Gateway**.
 * **The Broker (The Queue)**: To prevent crashing under high traffic, the gateway places incoming payloads into a highly fault-tolerant **Redis / BullMQ Queue**.
@@ -17,7 +17,7 @@ MagnusCI acts as a **Robotic Infrastructure Engineer** for your codebase:
 
 ---
 
-## ⚡ Core Features
+## Core Features
 
 * **Cryptographic Webhook Ingestion**: Verifies raw GitHub payloads via SHA-256 HMAC signatures (`X-Hub-Signature-256`) in $O(1)$ time (<30ms).
 * **DAG (Directed Acyclic Graph) Execution**: Parses dependency trees inside `magnus-ci.json`. It runs independent stages (like `lint` and `test`) in **parallel** across multiple Docker containers to slash execution time.
@@ -29,7 +29,7 @@ MagnusCI acts as a **Robotic Infrastructure Engineer** for your codebase:
 
 ---
 
-## 📂 Repository Structure
+## Repository Structure
 
 ```text
 .
@@ -61,7 +61,7 @@ MagnusCI acts as a **Robotic Infrastructure Engineer** for your codebase:
 
 ---
 
-## 🚀 Getting Started Locally
+## Getting Started Locally
 
 ### Prerequisites
 * **Node.js** (v20+)
@@ -110,7 +110,7 @@ npm run dev # Starts Vite on 5173
 
 ---
 
-## ⚙️ Advanced Pipeline Customization (`magnus-ci.json`)
+## Advanced Pipeline Customization (`magnus-ci.json`)
 
 To orchestrate complex workflows, place a `magnus-ci.json` file at the root of your target repository. The DAG algorithm will parse the `"needs"` arrays to execute parallel stages!
 
