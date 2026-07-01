@@ -292,19 +292,6 @@ To scale MagnusCI to handle 10,000+ builds per day for enterprise workloads, the
 
 ---
 
-## Contributors
-
-- **Aman Kashyap** - *System Design & Development* - [AmanKashyapp07](https://github.com/AmanKashyapp07)
-
----
-
-## Acknowledgements
-
-- Professor and class teaching assistants for the systems engineering guidelines.
-- The open-source community for the Dockerode and BullMQ documentation libraries.
-
----
-
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
