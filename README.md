@@ -204,15 +204,15 @@ graph TD
     G -->|7. Prune Sandbox & Files| I
 
     %% Styling
-    style A fill:#ECEFF1,stroke:#37474F,stroke-width:2px
-    style B fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px
-    style C fill:#FFEBEE,stroke:#E53935,stroke-width:2px
-    style D fill:#E8F5E9,stroke:#43A047,stroke-width:2px
-    style E fill:#FFF3E0,stroke:#FB8C00,stroke-width:2px
-    style F fill:#FFF8E1,stroke:#FFB300,stroke-width:2px
-    style G fill:#E0F7FA,stroke:#00ACC1,stroke-width:2px
-    style H fill:#F3E5F5,stroke:#8E24AA,stroke-width:2px
-    style I fill:#FFEBEE,stroke:#D81B60,stroke-width:2px
+    style A fill:#ECEFF1,stroke:#37474F,stroke-width:2px,color:#000
+    style B fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px,color:#000
+    style C fill:#FFEBEE,stroke:#E53935,stroke-width:2px,color:#000
+    style D fill:#E8F5E9,stroke:#43A047,stroke-width:2px,color:#000
+    style E fill:#FFF3E0,stroke:#FB8C00,stroke-width:2px,color:#000
+    style F fill:#FFF8E1,stroke:#FFB300,stroke-width:2px,color:#000
+    style G fill:#E0F7FA,stroke:#00ACC1,stroke-width:2px,color:#000
+    style H fill:#F3E5F5,stroke:#8E24AA,stroke-width:2px,color:#000
+    style I fill:#FFEBEE,stroke:#D81B60,stroke-width:2px,color:#000
 ```
 
 
