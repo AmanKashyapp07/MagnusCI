@@ -180,28 +180,39 @@ To configure builds, create a `magnus-ci.json` file in the root of your target r
 <!-- SYSTEM WORKFLOW -->
 ## System Workflow
 
-```text
-[GitHub Push Event]
-        │
-        ▼
- [Express Gateway] ──(Validates HMAC Signature)
-        │
-        ▼
-   [Redis Queue] ──(Decompresses Request Spikes)
-        │
-        ▼
- [Worker Daemon] ──(Pulls Build Job)
-        │
-        ├──► [Workspace Creator] ──(Clones Git Repository)
-        ├──► [Cache Manager] ──(Checks SHA-256 Lockfile Cache)
-        │
-        ▼
-   [Docker API] ──(Spawns Ephemeral Build Containers)
-        │
-        ├──► [Socket.io Server] ──(Pipes Log Stream & CPU/RAM Stats to React UI)
-        │
-        ▼
- [Cleanup System] ──(Prunes Workspace Files & Shuts Down Containers)
+```mermaid
+graph TD
+    %% Nodes
+    A["GitHub Push Event"]
+    B["Express Ingestion Gateway"]
+    C["Redis Queue (BullMQ)"]
+    D["Worker Daemon"]
+    E["Workspace Creator"]
+    F["Cache Manager"]
+    G["Docker Engine API"]
+    H["Socket.io WebSockets"]
+    I["Cleanup System"]
+
+    %% Connections
+    A --> B
+    B -->|1. Validate HMAC Signature| C
+    C -->|2. Decompress Request Spikes| D
+    D -->|3. Clone Git Repository| E
+    D -->|4. Check SHA-256 Lockfile Cache| F
+    D -->|5. Spawn Ephemeral Container| G
+    G -->|6. Pipe Real-time Logs & Metrics| H
+    G -->|7. Prune Sandbox & Files| I
+
+    %% Styling
+    style A fill:#ECEFF1,stroke:#37474F,stroke-width:2px
+    style B fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px
+    style C fill:#FFEBEE,stroke:#E53935,stroke-width:2px
+    style D fill:#E8F5E9,stroke:#43A047,stroke-width:2px
+    style E fill:#FFF3E0,stroke:#FB8C00,stroke-width:2px
+    style F fill:#FFF8E1,stroke:#FFB300,stroke-width:2px
+    style G fill:#E0F7FA,stroke:#00ACC1,stroke-width:2px
+    style H fill:#F3E5F5,stroke:#8E24AA,stroke-width:2px
+    style I fill:#FFEBEE,stroke:#D81B60,stroke-width:2px
 ```
 
 
@@ -315,20 +326,9 @@ Distributed under the MIT License. See `LICENSE` for more information.
 
 
 <!-- CONTACT -->
-## Contact
+## Contributor
 
-Aman Kashyap - [@AmanKashyapp07](https://github.com/AmanKashyapp07) - amankashyapp07@gmail.com
-
-Project Link: [https://github.com/AmanKashyapp07/ci-cd-engine](https://github.com/AmanKashyapp07/ci-cd-engine)
-
-
-
-<!-- ACKNOWLEDGMENTS -->
-## Acknowledgments
-
-* TA & professors for systems design guidelines
-* Open-source contributors of Dockerode, BullMQ, and Express
-* Othneil Drew's README Template creator
+Aman Kashyap - [@AmanKashyapp07](https://github.com/AmanKashyapp07) 
 
 
 
