@@ -199,15 +199,6 @@ To configure builds, create a `magnus-ci.json` file in the root of your target r
 
 ---
 
-## Screenshots
-
-*(Placeholders: Add your interface screenshots here once active)*
-
-| Dashboard View | Build Details & Telemetry |
-|---|---|
-| ![Dashboard Placeholder](https://via.placeholder.com/600x400?text=Dashboard+Overview+UI) | ![Build Modal Placeholder](https://via.placeholder.com/600x400?text=Live+ANSI+Log+Viewer+UI) |
-
----
 
 ## Project Workflow
 
