@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: magnus-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: magnus-api
+  template:
+    metadata:
+      labels:
+        app: magnus-api
+    spec:
+      containers:
+        - name: magnus-api
+          image: amankashyap07/magnus-api:latest # Placeholder for built docker image
+          ports:
+            - containerPort: 5001
+          env:
+            - name: PORT
+              value: "5001"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: POSTGRES_USER
+              value: "amankashyap"
+            - name: POSTGRES_DB
+              value: "ci_cd_engine"
+            - name: FRONTEND_URL
+              value: "http://magnus-ci.online"
+            - name: JWT_SECRET
+              value: "aman123"
+            # Note: Secrets should ideally use kubernetes Secret resources.
+            - name: GITHUB_CLIENT_ID
+              value: "Ov23liW688DnyJEBbQ5I"
+            - name: GITHUB_CLIENT_SECRET
+              value: "your_github_client_secret_here"
+            - name: GITHUB_WEBHOOK_SECRET
+              value: "aman123"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: magnus-api
+spec:
+  ports:
+    - port: 5001
+      targetPort: 5001
+  selector:
+    app: magnus-api

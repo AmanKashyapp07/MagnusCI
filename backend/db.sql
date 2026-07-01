@@ -77,3 +77,13 @@ ON build_logs(build_id);
 
 CREATE INDEX idx_webhook_repository_id
 ON webhook_events(repository_id);
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    github_id VARCHAR(100) UNIQUE NOT NULL,
+    username VARCHAR(100) NOT NULL,
+    avatar_url TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+ALTER TABLE repositories ADD COLUMN IF NOT EXISTS user_id INTEGER;
+ALTER TABLE repositories DROP CONSTRAINT IF EXISTS repositories_user_id_fkey;
+ALTER TABLE repositories ADD CONSTRAINT repositories_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;

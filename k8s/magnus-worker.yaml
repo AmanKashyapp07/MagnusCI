@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: magnus-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: magnus-worker
+  template:
+    metadata:
+      labels:
+        app: magnus-worker
+    spec:
+      containers:
+        - name: magnus-worker
+          image: amankashyap07/magnus-worker:latest # Placeholder for built docker image
+          env:
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: POSTGRES_USER
+              value: "amankashyap"
+            - name: POSTGRES_DB
+              value: "ci_cd_engine"
+            - name: GITHUB_TOKEN
+              value: "your_github_personal_access_token_here"
+          volumeMounts:
+            - name: docker-socket
+              mountPath: /var/run/docker.sock
+            - name: build-cache
+              mountPath: /home/azureuser/ci-cd-engine/backend/caches
+      volumes:
+        - name: docker-socket
+          hostPath:
+            path: /var/run/docker.sock
+        - name: build-cache
+          hostPath:
+            path: /var/run/docker-cache-dir

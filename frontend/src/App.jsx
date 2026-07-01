@@ -6,7 +6,9 @@ import RepoList from "./components/RepoList";
 import BuildHistory from "./components/BuildHistory";
 import BuildModal from "./components/BuildModal";
 
-const API_BASE = "http://localhost:5001/api";
+const API_BASE = window.location.origin.includes("localhost:5173")
+  ? "http://localhost:5001/api"
+  : "/api";
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem("token") || "");

@@ -1,5 +1,11 @@
 # MagnusCI: Ephemeral Container-Based CI/CD Orchestration Engine
 
+> **Live Production Deployment:** The project is fully deployed and accessible live at: **[http://magnus-ci.online](http://magnus-ci.online)**
+> 
+> *Backup / Direct Server IP: [http://4.145.89.253](http://4.145.89.253)*
+
+---
+
 A custom-built, lightweight CI/CD orchestration engine designed as a college project to demonstrate key concepts in systems programming, container orchestration, and asynchronous build automation. This system intercepts code pushes via GitHub webhooks, manages execution pipelines using a custom Directed Acyclic Graph (DAG) scheduler, runs build stages within isolated Docker containers, and streams real-time terminal output to a web-based monitoring dashboard.
 
 ---
@@ -115,7 +121,7 @@ Ensure you have the following software installed locally:
 2. **Database Initialization:**
    Create a PostgreSQL database named `ci_cd_engine` and initialize the schema:
    ```bash
-   psql -U <username> -d ci_cd_engine -f backend/db.sql
+   psql -U amankashyap -d ci_cd_engine -f backend/db.sql
    ```
 
 3. **Configure Environment Variables:**
@@ -142,6 +148,21 @@ Ensure you have the following software installed locally:
    cd ../frontend
    npm install
    ```
+
+---
+
+### Production Deployment (Azure VM)
+
+This project has been configured and deployed to a production Azure Virtual Machine (Ubuntu 24.04) under the custom domain **`http://magnus-ci.online`**:
+
+1. **Static Assets & Reverse Proxy (Nginx):** 
+   Nginx acts as the primary web server listening on Port 80. It serves the production React build (from `frontend/dist`) statically. It also reverse proxies all API requests (`/api/*`) and WebSockets (`/socket.io/*`) to the Express Gateway backend running locally on Port 5001.
+   
+2. **Process Management (PM2):**
+   The backend Express server (`magnus-api`) and background queue runner (`magnus-worker`) are daemonized and monitored using PM2. This ensures zero downtime, auto-restart on crashes, and background system logging.
+   
+3. **Database Configuration:**
+   PostgreSQL is running locally on the Azure host with TCP peer configuration mapped to the default superuser role to support passwordless secure loopback connections.
 
 ---
 
@@ -250,17 +271,30 @@ To configure builds, create a `magnus-ci.json` file in the root of your target r
 
 ---
 
-## Future Improvements
+## Future Scaling Scope & Kubernetes Roadmap
 
-- **MicroVM Integration:** Migrate execution runs from Docker containers to microVMs (e.g., AWS Firecracker) to enable strict kernel-level tenant isolation.
-- **Log Compression & Cloud Storage:** Save finished log text files into object storage buckets (like AWS S3) rather than storing large strings directly in database columns.
-- **Horizontal Scaling:** Deploy workers in stateless, autoscaling configurations coordinated via Kubernetes rather than a single monolithic daemon.
+To scale MagnusCI to handle 10,000+ builds per day for enterprise workloads, the architecture would transition from a single-node host to a distributed cloud model:
+
+1. **Stateless API Gateway Scaling (Kubernetes):**
+   Deploy the API gateways as a stateless `Deployment` inside a Kubernetes cluster, managed by a **Horizontal Pod Autoscaler (HPA)** based on traffic spikes. An **Application Load Balancer (ALB)** will act as the traffic router, distributing webhook payloads across active gateway pods.
+
+2. **Distributed Queue Sharding (Redis Cluster):**
+   Transition from a single local Redis daemon to an auto-scaling cloud database like **AWS ElastiCache Redis** configured with master-replica replication and sharding. This guarantees that BullMQ can process thousands of job allocations without database bottlenecks.
+
+3. **Serverless Build Runners (Kubernetes Job Controller):**
+   Instead of binding to the host node's Docker daemon socket (which represents a host-compromise security vulnerability), the background worker will use the `@kubernetes/client-node` SDK to dynamically call the **Kubernetes API Server**. Each build stage will be spawned dynamically as an isolated, short-lived **Kubernetes Job Pod**, allowing the **Cluster Autoscaler** to add and remove cloud virtual machine nodes dynamically on demand.
+
+4. **Multi-Tenant Security Sandbox (AWS Firecracker MicroVMs):**
+   To prevent container-breakout attacks (where malicious test scripts exploit shared-kernel vulnerabilities), replace the standard Docker container runtime with **AWS Firecracker** or **Kata Containers**. This boots minimalist MicroVMs in milliseconds, providing the speed of containers with absolute hardware-level virtualization isolation.
+
+5. **Cloud Cache & Log Offloading (AWS S3 & CloudFront):**
+   Store build cache tarballs and historical terminal logs in **Amazon S3** instead of local host volumes. Cache assets will be delivered via a **CloudFront CDN** cache to reduce network bandwidth costs.
 
 ---
 
 ## Contributors
 
-- **<Your Name>** - *System Design & Development* - [<Your GitHub profile>]
+- **Aman Kashyap** - *System Design & Development* - [AmanKashyapp07](https://github.com/AmanKashyapp07)
 
 ---
 
