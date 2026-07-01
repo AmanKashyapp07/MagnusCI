@@ -1,5 +1,3 @@
-<a id="readme-top"></a>
-
 <!-- PROJECT SHIELDS -->
 [![Contributors][contributors-shield]][contributors-url]
 [![Forks][forks-shield]][forks-url]
@@ -7,12 +5,7 @@
 [![Issues][issues-shield]][issues-url]
 [![MIT License][license-shield]][license-url]
 
-<!-- PROJECT LOGO -->
-<br />
 <div align="center">
-  <a href="https://github.com/AmanKashyapp07/ci-cd-engine">
-    <img src="https://images.unsplash.com/photo-1618401471353-b98aedd07871?auto=format&fit=crop&w=120&h=120&q=80" alt="Logo" width="80" height="80" style="border-radius: 20%;">
-  </a>
 
 <h3 align="center">MagnusCI</h3>
 
@@ -64,8 +57,6 @@
 <!-- ABOUT THE PROJECT -->
 ## About The Project
 
-[![Product Name Screen Shot](https://images.unsplash.com/photo-1600132806370-bf17e65e942f?auto=format&fit=crop&w=800&h=400&q=80)](http://magnus-ci.online)
-
 MagnusCI is a custom-built, lightweight CI/CD orchestration engine designed to demonstrate the underlying mechanics of modern automation platforms like GitHub Actions and Vercel. 
 
 Instead of relying on pre-existing CI tools, this project implements the core execution pipeline from scratch. The system intercepts code pushes via GitHub webhooks, manages execution pipelines using a custom Directed Acyclic Graph (DAG) scheduler, runs build stages within isolated ephemeral Docker containers, and streams real-time terminal output and resource telemetry to a web-based React monitoring dashboard.
@@ -80,7 +71,7 @@ Instead of relying on pre-existing CI tools, this project implements the core ex
 * [![Redis][Redis.io]][Redis-url]
 * [![Docker][Docker.com]][Docker-url]
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- KEY FEATURES -->
 ## Key Features
@@ -94,7 +85,7 @@ Instead of relying on pre-existing CI tools, this project implements the core ex
 * **GitHub Commit Status Feedback:** Integrates with the GitHub Statuses API to update commit verification badges on the remote repository.
 * **Automated Revert Recovery:** Detects build failures on protected branches and automatically pushes a git revert commit to the remote repository.
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- GETTING STARTED -->
 ## Getting Started
@@ -140,7 +131,7 @@ To get a local copy up and running, follow these simple steps.
    cd ../frontend && npm install
    ```
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- USAGE EXAMPLES -->
 ## Usage
@@ -184,7 +175,7 @@ To configure builds, create a `magnus-ci.json` file in the root of your target r
 }
 ```
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- SYSTEM WORKFLOW -->
 ## System Workflow
@@ -213,7 +204,7 @@ To configure builds, create a `magnus-ci.json` file in the root of your target r
  [Cleanup System] ──(Prunes Workspace Files & Shuts Down Containers)
 ```
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- PRODUCTION DEPLOYMENT -->
 ## Production Deployment (Azure VM)
@@ -291,7 +282,7 @@ This project has been fully deployed on a production Azure Virtual Machine (Ubun
   ```
 </details>
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- FUTURE ROADMAP -->
 ## Future Scaling Scope & Kubernetes Roadmap
@@ -304,7 +295,7 @@ To scale MagnusCI to handle 10,000+ builds per day for enterprise workloads, the
 4. **Hardware Virtualization Sandboxing:** Replace shared-kernel Docker runtimes with **AWS Firecracker MicroVMs** or **Kata Containers** to prevent container-breakout attacks.
 5. **Distributed Storage:** Move dependency caches and terminal execution logs to **Amazon S3** cached globally via a **CloudFront CDN** to remove local disk volume constraints.
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- CHALLENGES AND LEARNINGS -->
 ## Challenges Faced & Learning Outcomes
@@ -314,14 +305,14 @@ To scale MagnusCI to handle 10,000+ builds per day for enterprise workloads, the
 * **Circular Graph Validation:** User-defined build sequences inside `magnus-ci.json` introduce the risk of infinite loops (e.g. A needs B, B needs A). We resolved this by implementing a Depth-First Search (DFS) cycle-checking algorithm to audit the pipeline DAG before execution.
 * **State Management & WebSockets:** Gained experience managing high-throughput Socket.io log streams to prevent React state re-render lags.
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- LICENSE -->
 ## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- CONTACT -->
 ## Contact
@@ -330,7 +321,7 @@ Aman Kashyap - [@AmanKashyapp07](https://github.com/AmanKashyapp07) - amankashya
 
 Project Link: [https://github.com/AmanKashyapp07/ci-cd-engine](https://github.com/AmanKashyapp07/ci-cd-engine)
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- ACKNOWLEDGMENTS -->
 ## Acknowledgments
@@ -339,7 +330,7 @@ Project Link: [https://github.com/AmanKashyapp07/ci-cd-engine](https://github.co
 * Open-source contributors of Dockerode, BullMQ, and Express
 * Othneil Drew's README Template creator
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- MARKDOWN LINKS & IMAGES -->
 [contributors-shield]: https://img.shields.io/github/contributors/AmanKashyapp07/ci-cd-engine.svg?style=for-the-badge
