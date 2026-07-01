@@ -1,4 +1,4 @@
-# MagnusCI: Enterprise-Grade CI/CD Orchestration Engine 🚀
+# MagnusCI: Enterprise-Grade CI/CD Orchestration Engine
 
 A high-performance, asynchronous CI/CD infrastructure designed to simulate the core code ingestion and build pipelines of modern platforms like Vercel and GitHub Actions. 
 

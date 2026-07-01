@@ -831,7 +831,7 @@ ${styles.magenta}${styles.bright}===============================================
 █▀▄▀█  ▄▀█  █▀▀  █▄░█  █░█  █▀    █▀▀  █
 █░▀░█  █▀█  █▄█  █░▀█  █▄█  ▄█    █▄▄  █
 ========================================================================${styles.reset}
-${styles.cyan}${styles.bright} 🚀  Engine Daemon Online
+${styles.cyan}${styles.bright} Engine Daemon Online
  📡  Awaiting Webhooks on: ${styles.yellow}build-queue${styles.cyan}
  🛡️   Auto-Revert System: ${styles.green}Enabled${styles.cyan}
  📦  Docker API Connected: ${styles.green}true${styles.cyan}
