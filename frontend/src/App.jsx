@@ -697,6 +697,50 @@ function App() {
 
           </div>
 
+          {/* magnus-ci.json Instructions */}
+          <div className="pt-10 pb-6 border-t border-white/[0.04] mt-2">
+            <h3 className="text-[12px] font-bold uppercase tracking-widest text-zinc-300 mb-4 flex items-center gap-2">
+              <svg className="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+              Advanced Pipeline Orchestration (magnus-ci.json)
+            </h3>
+            <div className="flex flex-col md:flex-row gap-8 lg:gap-12 items-start">
+              <div className="flex-1 space-y-4">
+                <p className="text-[12px] text-zinc-400 leading-relaxed font-mono">
+                  By default, MagnusCI detects your language (Node, Python, Go, C++) and automatically provisions a bulletproof test container. For complex microservices, you can override this behavior by placing a <code className="px-1.5 py-0.5 bg-cyan-500/10 text-cyan-400 rounded border border-cyan-500/20">magnus-ci.json</code> file at the root of your repository.
+                </p>
+                <p className="text-[12px] text-zinc-400 leading-relaxed font-mono">
+                  The Execution Engine parses this configuration as a <strong className="text-zinc-200">Directed Acyclic Graph (DAG)</strong>. It maps dependencies via the <code className="text-amber-400 bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20">"needs"</code> array and automatically spawns isolated, ephemeral Docker containers to execute independent stages concurrently!
+                </p>
+              </div>
+              <div className="flex-1 w-full bg-[#0a0a0a] rounded-lg border border-white/[0.06] p-4 shadow-xl">
+                <pre className="text-[11px] font-mono overflow-x-auto leading-relaxed">
+<span className="text-rose-400">{`{`}</span>{`
+  `}
+  <span className="text-cyan-300">"language"</span>{`: `}<span className="text-emerald-300">"Node.js"</span>{`,
+  `}
+  <span className="text-cyan-300">"image"</span>{`: `}<span className="text-emerald-300">"node:20-alpine"</span>{`,
+  `}
+  <span className="text-cyan-300">"stages"</span>{`: `}<span className="text-rose-400">{`{`}</span>{`
+    `}
+    <span className="text-amber-300">"setup"</span>{`: `}<span className="text-rose-400">{`{`}</span>{` `}
+      <span className="text-cyan-300">"run"</span>{`: `}<span className="text-emerald-300">"npm ci"</span>{`
+    `}<span className="text-rose-400">{`}`}</span>{`,
+    `}
+    <span className="text-amber-300">"test"</span>{`: `}<span className="text-rose-400">{`{`}</span>{`
+      `}
+      <span className="text-cyan-300">"run"</span>{`: `}<span className="text-emerald-300">"npm test"</span>{`,
+      `}
+      <span className="text-cyan-300">"needs"</span>{`: `}<span className="text-violet-300">["setup"]</span>{`
+    `}<span className="text-rose-400">{`}`}</span>{`
+  `}<span className="text-rose-400">{`}`}</span>{`
+`}<span className="text-rose-400">{`}`}</span>
+                </pre>
+              </div>
+            </div>
+          </div>
+
           {/* Bottom bar */}
           <div className="pt-6 border-t border-white/[0.04] flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-4">
