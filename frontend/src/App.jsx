@@ -343,6 +343,7 @@ function App() {
       if (res.ok) {
         setMessage("Repository registered successfully!");
         showToast("Repository registered successfully!", "success");
+        setTimeout(() => setMessage(""), 4000);
         setRepoName("");
         setRepoUrl("");
         fetchRepos();
@@ -541,7 +542,7 @@ function App() {
       {/* Header Navbar */}
       <Header user={user} dbStatus={dbStatus} handleLogout={handleLogout} />
 
-      <main className="max-w-7xl mx-auto w-full px-6 py-8 flex-1 flex flex-col relative z-10">
+      <main className="max-w-7xl mx-auto w-full px-6 py-8 min-h-[calc(100vh-4rem)] flex flex-col relative z-10">
         {/* Top Metrics Row */}
         <MetricsRow
           reposCount={repos.length}
