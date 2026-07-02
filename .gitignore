@@ -11,3 +11,4 @@ temp_builds/
 backend/caches/
 caches/
 backend/public/artifacts/
+interview/
