@@ -202,12 +202,17 @@ export function parseLogsIntoSteps(rawLogs, buildStatus) {
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
 
-    const hasError = step.lines.some(l => 
-      l.includes('❌') || 
-      l.toLowerCase().includes('failed') || 
-      l.toLowerCase().includes('error') || 
-      l.toLowerCase().includes('breakdown')
-    );
+    const hasError = step.lines.some(l => {
+      const lower = l.toLowerCase();
+      if (lower.includes('npm warn') || lower.includes('npm warning')) {
+        return false;
+      }
+      const cleanLine = lower.replace(/level-errors/g, '');
+      return l.includes('❌') || 
+             cleanLine.includes('failed') || 
+             cleanLine.includes('error') || 
+             cleanLine.includes('breakdown');
+    });
 
     if (hasError) {
       step.status = 'failed';
