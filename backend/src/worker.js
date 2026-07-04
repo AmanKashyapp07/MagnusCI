@@ -514,7 +514,10 @@ const worker = new Worker('build-queue', async job => {
     await saveLogs(buildId, buildLogs);
 
     // Determine cache bind mounts dynamically
-    const binds = [`${workspacePath}:/app`];
+    const binds = [
+      `${workspacePath}:/app`,
+      '/var/run/docker.sock:/var/run/docker.sock'
+    ];
 
     if (language === 'Python') {
       const localPipCache = path.join(workspacePath, '.pip_cache');
