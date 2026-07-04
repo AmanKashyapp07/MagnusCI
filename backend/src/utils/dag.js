@@ -97,7 +97,8 @@ async function loadPipelineStages(workspacePath, language, defaultImage) {
         parsedStages[name] = {
           run: stage.run || stage.cmd,
           image: stage.image || defaultImage,
-          needs: stage.needs || []
+          needs: stage.needs || [],
+          timeout: stage.timeout
         };
       }
       return parsedStages;
