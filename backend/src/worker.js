@@ -627,12 +627,14 @@ const worker = new Worker('build-queue', async job => {
       await stageContainer.start();
       logWorker(`Stage ${stageName} runtime session active.`);
 
-      // Implement timeout of 2 minutes for this stage
+      // Implement configurable timeout per stage (default: 2 minutes)
+      const stageTimeoutMs = (stageConfig.timeout || 120) * 1000;
+      const stageTimeoutMinutes = Math.round((stageConfig.timeout || 120) / 60);
       let stageTimeoutId;
       const stageTimeoutPromise = new Promise((_, reject) => {
         stageTimeoutId = setTimeout(() => {
-          reject(new Error(`Stage ${stageName} timed out after 2 minutes.`));
-        }, 120000);
+          reject(new Error(`Stage ${stageName} timed out after ${stageTimeoutMinutes} minutes.`));
+        }, stageTimeoutMs);
       });
 
       try {
