@@ -1,8 +1,11 @@
 const express = require("express");
 const pool = require("../db");
 const authenticateToken = require("../middleware/authMiddleware");
+const { updateGitHubStatus } = require("../utils/githubStatus");
 
 const router = express.Router();
+
+const getWebhookUrl = () => `${process.env.FRONTEND_URL || "http://magnus-ci.online"}/api/webhooks/github`;
 
 // Get all repositories associated with the logged-in user
 router.get("/", authenticateToken, async (req, res) => {
@@ -29,9 +32,21 @@ const parseRepoUrl = (url) => {
   return { owner: match[1], repo: match[2].replace(/\.git$/, "") };
 };
 
+const getLatestCommitHash = async (repositoryId) => {
+  const result = await pool.query(
+    `SELECT commit_hash
+     FROM builds
+     WHERE repository_id = $1 AND commit_hash IS NOT NULL
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+    [repositoryId]
+  );
+
+  return result.rows[0]?.commit_hash || null;
+};
+
 const registerGitHubWebhook = async (owner, repo) => {
   const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
-  const BACKEND_URL = process.env.FRONTEND_URL || "http://magnus-ci.online";
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
   if (!GITHUB_TOKEN) {
@@ -53,7 +68,7 @@ const registerGitHubWebhook = async (owner, repo) => {
         active: true,
         events: ["push"],
         config: {
-          url: `${BACKEND_URL}/api/webhooks/github`,
+          url: getWebhookUrl(),
           content_type: "json",
           secret: GITHUB_WEBHOOK_SECRET,
           insecure_ssl: "0"
@@ -69,6 +84,52 @@ const registerGitHubWebhook = async (owner, repo) => {
     }
   } catch (error) {
     console.error(`Error registering webhook: ${error.message}`);
+  }
+};
+
+const unregisterGitHubWebhook = async (owner, repo) => {
+  const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+
+  if (!GITHUB_TOKEN) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${GITHUB_TOKEN}`,
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "MagnusCI-App"
+      }
+    });
+
+    if (!response.ok) {
+      console.error(`GitHub webhook lookup failed: ${response.status} ${response.statusText}`);
+      return;
+    }
+
+    const hooks = await response.json();
+    const matchingHooks = hooks.filter((hook) => hook?.config?.url === getWebhookUrl());
+
+    await Promise.all(
+      matchingHooks.map(async (hook) => {
+        const deleteResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks/${hook.id}`, {
+          method: "DELETE",
+          headers: {
+            "Authorization": `Bearer ${GITHUB_TOKEN}`,
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "MagnusCI-App"
+          }
+        });
+
+        if (!deleteResponse.ok) {
+          console.error(`GitHub webhook deletion failed for hook ${hook.id}: ${deleteResponse.status} ${deleteResponse.statusText}`);
+        }
+      })
+    );
+  } catch (error) {
+    console.error(`Error deleting GitHub webhook: ${error.message}`);
   }
 };
 
@@ -102,13 +163,42 @@ router.post("/", authenticateToken, async (req, res) => {
 // Delete repository (workspace) and cascade to builds
 router.delete("/:id", authenticateToken, async (req, res) => {
   try {
+    const repoResult = await pool.query(
+      "SELECT id, github_url FROM repositories WHERE id = $1 AND user_id = $2",
+      [req.params.id, req.user.id]
+    );
+    if (repoResult.rowCount === 0) {
+      return res.status(404).json({ error: "Repository not found or unauthorized" });
+    }
+
+    const repository = repoResult.rows[0];
+    const repoInfo = parseRepoUrl(repository.github_url);
+    const latestCommitHash = await getLatestCommitHash(repository.id);
+
+    if (repoInfo && latestCommitHash) {
+      try {
+        await updateGitHubStatus(
+          repoInfo.owner,
+          repoInfo.repo,
+          latestCommitHash,
+          "error",
+          "Magnus CI: repository disconnected from local pipeline",
+          process.env.FRONTEND_URL || "http://magnus-ci.online"
+        );
+      } catch (statusError) {
+        console.error(`Final GitHub status update failed: ${statusError.message}`);
+      }
+    }
+
+    if (repoInfo) {
+      await unregisterGitHubWebhook(repoInfo.owner, repoInfo.repo);
+    }
+
     const result = await pool.query(
       "DELETE FROM repositories WHERE id = $1 AND user_id = $2 RETURNING *",
       [req.params.id, req.user.id]
     );
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: "Repository not found or unauthorized" });
-    }
+
     res.json({ message: "Repository deleted successfully", repository: result.rows[0] });
   } catch (error) {
     console.error(error);
