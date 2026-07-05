@@ -110,7 +110,10 @@ const unregisterGitHubWebhook = async (owner, repo) => {
     }
 
     const hooks = await response.json();
-    const matchingHooks = hooks.filter((hook) => hook?.config?.url === getWebhookUrl());
+    const matchingHooks = hooks.filter((hook) => 
+      hook?.config?.url && 
+      (hook.config.url === getWebhookUrl() || hook.config.url.endsWith("/api/webhooks/github"))
+    );
 
     await Promise.all(
       matchingHooks.map(async (hook) => {
