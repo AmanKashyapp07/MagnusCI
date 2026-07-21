@@ -1,3 +1,30 @@
+////////////////////////////////////////////////////////////////////////////////
+// Dependency Caching & Compression Manager
+//
+// File Purpose:
+// This module provides lockfile fingerprinting and cached package folder
+// restoration/archiving to optimize build speeds by avoiding redundant
+// network package downloads (e.g. npm ci / pip install).
+//
+// High-Level Architecture:
+// 1. Lockfile Mapping: Matches detected language environments to specific
+//    dependency lockfiles (e.g. package-lock.json, go.sum).
+// 2. Cryptographic Fingerprinting: Hashes lockfile contents using SHA-256
+//    to calculate a unique key for the dependency tree state.
+// 3. Native Tar Extraction: Restores package folders from cached tarball archives
+//    on the host using shell commands.
+// 4. Native Tar Compression: Compresses package folders back into tarball archives
+//    on successful builds for future reuse.
+//
+// Interview Topics:
+// - Cryptographic hashing (Why SHA-256? Collision properties).
+// - Performance trade-offs of native shell tools vs JavaScript libraries.
+// - Concurrency and filesystem isolation to prevent cache corruption.
+// - Corrupt-cache recovery strategies.
+//
+// Dependencies: crypto, fs, path, child_process
+////////////////////////////////////////////////////////////////////////////////
+
 const crypto = require('crypto');
 const fs = require('fs').promises;
 const path = require('path');
@@ -5,6 +32,11 @@ const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
 
+//------------------------------------------------------------------------------
+// Cache Configuration Schema
+//
+// Maps detected environments to their corresponding lockfiles and cached target folders.
+//------------------------------------------------------------------------------
 const CACHE_CONFIG = {
   'Node.js': {
     lockfiles: ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'],
@@ -28,6 +60,14 @@ const CACHE_CONFIG = {
   }
 };
 
+////////////////////////////////////////////////////////////////////////////////
+// Function: getCacheConfig
+// Purpose: Matches language strings to cache config mappings.
+// Inputs: language (string)
+// Outputs: Cache config object, or null
+// Side Effects: None
+// Time Complexity: O(K) where K is configurations size.
+////////////////////////////////////////////////////////////////////////////////
 function getCacheConfig(language) {
   if (!language) return null;
   for (const key of Object.keys(CACHE_CONFIG)) {
@@ -40,6 +80,21 @@ function getCacheConfig(language) {
   return null;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Function: calculateFileHash
+// Purpose: Computes a cryptographic SHA-256 fingerprint of a file.
+// Inputs: filePath (string)
+// Outputs: Hash string (hexadecimal), or null on failure
+// Side Effects: Reads file.
+// Time Complexity: O(N) where N is file size.
+//
+// Interview Q&A:
+// Q: Why did you choose SHA-256?
+// A: SHA-256 is a standard cryptographic hash function. It is deterministic,
+//    meaning the same input always produces the exact same 256-bit output.
+//    Its collision resistance guarantees that distinct lockfiles will not
+//    produce the same hash, preventing the cache from returning incorrect packages.
+////////////////////////////////////////////////////////////////////////////////
 async function calculateFileHash(filePath) {
   try {
     const content = await fs.readFile(filePath);
@@ -49,6 +104,35 @@ async function calculateFileHash(filePath) {
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Function: restoreCache
+// Purpose: Checks for and extracts a cached dependency archive.
+// Inputs: workspacePath (string), language (string), repoId (number)
+// Outputs: Result object { success: boolean, hash: string, message: string }
+// Side Effects: Resolves file access, runs shell extraction command.
+// Time Complexity: O(N) where N is size of the tarball archive.
+//
+// Logic Details:
+// 1. Locates the lockfile matching the language configuration.
+// 2. Calculates its SHA-256 hash.
+// 3. Checks if an archive named `{repoId}-{language}-{hash}.tar.gz` exists in
+//    caches/tarballs/.
+// 4. If it exists, extracts it directly into the workspace using a native `tar`
+//    command execution:
+//    `tar -xzf [cacheFilePath] -C [workspacePath]`
+//
+// Error Recovery:
+// If extraction fails, the catch block deletes the corrupted tarball using
+// `fs.unlink`, preventing it from corrupting future builds.
+//
+// Security & Concurrency Consideration:
+// Q: Why include repoId in the cache filename?
+// A: This prevents cross-tenant pollution. A developer on Repo A cannot access
+//    or corrupt Repo B's cached dependencies.
+// Q: How is concurrency handled if two builds of the same repo run?
+// A: Each build runs in its own UUID-named directory. The tarball is extracted
+//    into this isolated workspace, preventing concurrent file writes.
+////////////////////////////////////////////////////////////////////////////////
 async function restoreCache(workspacePath, language, repoId) {
   const config = getCacheConfig(language);
   if (!config) {
@@ -110,6 +194,25 @@ async function restoreCache(workspacePath, language, repoId) {
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Function: saveCache
+// Purpose: Compresses a package directory into a tarball archive.
+// Inputs: workspacePath (string), language (string), repoId (number), hash (string)
+// Outputs: Result object { success: boolean, message: string }
+// Side Effects: Creates tarball archive.
+// Time Complexity: O(N) where N is size of the package directory.
+//
+// Logic Details:
+// 1. Verifies the dependency directory exists in the workspace.
+// 2. Compresses the directory into a tarball using the native `tar` utility:
+//    `tar -czf [cacheFilePath] -C [workspacePath] [folderName]`
+//
+// Interview Discussion:
+// Q: Why did you use child_process native command lines instead of JS libraries?
+// A: Performance. Native Linux `tar` commands are compiled C binaries that run
+//    much faster than JavaScript implementations. They also avoid memory limits
+//    in the Node runtime.
+////////////////////////////////////////////////////////////////////////////////
 async function saveCache(workspacePath, language, repoId, hash) {
   const config = getCacheConfig(language);
   if (!config || !hash) {
@@ -143,3 +246,4 @@ module.exports = {
   saveCache,
   getCacheConfig
 };
+

@@ -1,3 +1,42 @@
+////////////////////////////////////////////////////////////////////////////////
+// MagnusCI Background Worker & Orchestration Daemon
+//
+// File Purpose:
+// This daemon is the core processing engine of MagnusCI. It runs continuously
+// in the background, pulls jobs from the BullMQ queue, clones the target repo,
+// resolves dependency caches, executes the pipeline DAG, programmatically
+// controls isolated Docker containers, streams logs, and pushes auto-reverts on failures.
+//
+// High-Level Architecture & Lifecycle Flow:
+// 1. Dequeue: Listens for 'run-build' tasks enqueued by the Express gateway.
+// 2. Set RUNNING: Transition PostgreSQL builds.status to 'RUNNING'.
+// 3. Workspace Prep: Creates a temp directory temp_builds/{buildId}/ on host disk.
+// 4. Git VCS Isolation: Clones the codebase and checkouts the specific commit SHA.
+// 5. Caching Lookup: Fingerprints the lockfile, checks for an archive tarball,
+//    and extracts it into the workspace to skip package downloads.
+// 6. Graph Orchestration: Validates cycle-free stages and executes them in parallel.
+// 7. Sibling Containers: For each stage, talks to /var/run/docker.sock Unix socket
+//    to pull the image and spawn a container mapping the workspace.
+// 8. Stream Logs & Metrics: Listens to standard output, prefixes logs (throttling
+//    DB writes to every 1000ms), and polls CPU/Memory every 2s.
+// 9. Completion Gates: Checks for build success/failures, updates status badges
+//    on GitHub, saves caches, harvests coverages/binaries, and executes Git revert
+//    remotely on failures.
+// 10. Workspace Pruning: Recursively sweeps folder directories inside finally {}
+//     blocks to prevent storage leaks.
+//
+// Topics Interviewers Can Ask:
+// - Programmatic Unix socket APIs (dockerode) vs spawning shell CLI tools (child_process).
+// - Docker out of Docker (DooD) pattern vs Docker in Docker (DinD).
+// - Sibling container creation, volume binds mapping, and resource quotas.
+// - Merged Pseudo-TTY standard output stream capturing.
+// - Event loop Promise.race timeout safeguards.
+// - Personal Access Token (PAT) authentication git overrides.
+// - Throttled log batching and vertical partitioning logic.
+//
+// Dependencies: dotenv, BullMQ, Dockerode, Simple-Git, fs/promises, pg pool
+////////////////////////////////////////////////////////////////////////////////
+
 require('dotenv').config();
 const { Worker } = require('bullmq');
 const Docker = require('dockerode');
@@ -9,430 +48,42 @@ const { createWorkspace, cleanWorkspace } = require('./workspace');
 const { updateGitHubStatus } = require('./utils/githubStatus');
 const { restoreCache, saveCache } = require('./utils/cache');
 const { loadPipelineStages, hasCycle, executeDAG } = require('./utils/dag');
-
-
-
-// --- Terminal Styling Helpers (ANSI Colors) ---
-const styles = {
-  reset: '\x1b[0m',
-  bright: '\x1b[1m',
-  dim: '\x1b[2m',
-  cyan: '\x1b[36m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  red: '\x1b[31m',
-  magenta: '\x1b[35m',
-  blue: '\x1b[34m',
-  bgBlue: '\x1b[44m\x1b[37m',
-  bgGreen: '\x1b[42m\x1b[30m',
-  bgRed: '\x1b[41m\x1b[37m'
-};
-
-const getTimestamp = () => `${styles.dim}[${new Date().toISOString().split('T')[1].slice(0, 8)}]${styles.reset}`;
-const logWorker = (msg) => console.log(`${getTimestamp()} ${styles.magenta}${styles.bright}[WORKER]${styles.reset} ${msg}`);
-const logEngine = (msg) => `${getTimestamp()} ${styles.cyan}${styles.bright}[ENGINE]${styles.reset} ${msg}`;
-const logSuccess = (msg) => console.log(`${getTimestamp()} ${styles.bgGreen} SUCCESS ${styles.reset} ${styles.green}${msg}${styles.reset}`);
-const logError = (msg, err) => console.error(`${getTimestamp()} ${styles.bgRed} ERROR ${styles.reset} ${styles.red}${msg}${styles.reset}`, err || '');
+const {
+  styles,
+  logWorker,
+  logEngine,
+  logSuccess,
+  logError,
+  pullImage,
+  saveLogs,
+  detectProjectContext,
+  extractTestSummary,
+  handleRevertCommit,
+  harvestArtifacts
+} = require('./utils/workerHelpers');
 
 // --- Core Setup ---
+//------------------------------------------------------------------------------
+// Core Engine Instantiations & Sockets Setup
+// We connect programmatically to /var/run/docker.sock to manage containers.
+//------------------------------------------------------------------------------
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 const connection = {
   host: process.env.REDIS_HOST || '127.0.0.1',
   port: parseInt(process.env.REDIS_PORT || '6379')
 };
 
-const pullImage = (imageName) => {
-  return new Promise((resolve, reject) => {
-    docker.pull(imageName, (err, stream) => {
-      if (err) return reject(err);
-      docker.modem.followProgress(stream, (err, res) => {
-        if (err) return reject(err);
-        resolve(res);
-      });
-    });
-  });
-};
-
-const saveLogs = async (buildId, logs) => {
-  try {
-    const res = await pool.query("SELECT id FROM build_logs WHERE build_id = $1", [buildId]);
-    if (res.rows.length > 0) {
-      await pool.query("UPDATE build_logs SET log_message = $1 WHERE build_id = $2", [logs, buildId]);
-    } else {
-      await pool.query("INSERT INTO build_logs (build_id, log_message) VALUES ($1, $2)", [buildId, logs]);
-    }
-  } catch (err) {
-    logError(`Failed to save DB logs for build ${buildId}`, err);
-  }
-};
-
-// --- Language Detection & Workflow Configuration ---
-const detectProjectContext = async (workspacePath) => {
-  // Helper check for file existence
-  const fileExists = async (filename) => {
-    return fs.access(path.join(workspacePath, filename))
-      .then(() => true)
-      .catch(() => false);
-  };
-
-  // 1. Check for magnus-ci.json
-  const configPath = path.join(workspacePath, 'magnus-ci.json');
-  let config = null;
-  try {
-    const data = await fs.readFile(configPath, 'utf8');
-    config = JSON.parse(data);
-  } catch (err) {
-    if (err.code !== 'ENOENT') {
-      throw err;
-    }
-  }
-
-  if (config) {
-    // Check if new DAG format
-    if (config.stages && typeof config.stages === 'object') {
-      let detectedLanguage = config.language;
-      let detectedImage = config.image;
-
-      if (!detectedLanguage) {
-        if (await fileExists('package.json')) detectedLanguage = 'Node.js';
-        else if (await fileExists('go.mod')) detectedLanguage = 'Go';
-        else if (await fileExists('requirements.txt')) detectedLanguage = 'Python';
-        else if (await fileExists('pom.xml')) detectedLanguage = 'Java (Maven)';
-        else if (await fileExists('build.gradle')) detectedLanguage = 'Java (Gradle)';
-        else detectedLanguage = 'custom';
-      }
-
-      if (!detectedImage) {
-        if (detectedLanguage === 'Node.js') detectedImage = 'node:20-alpine';
-        else if (detectedLanguage === 'Go') detectedImage = 'golang:1.21-alpine';
-        else if (detectedLanguage === 'Python') detectedImage = 'python:3.10-alpine';
-        else if (detectedLanguage.includes('Maven')) detectedImage = 'maven:3.9-eclipse-temurin-17-alpine';
-        else if (detectedLanguage.includes('Gradle')) detectedImage = 'gradle:8-jdk17-alpine';
-        else detectedImage = 'alpine:latest';
-      }
-
-      return {
-        language: detectedLanguage,
-        imageName: detectedImage,
-        runCommand: ''
-      };
-    }
-
-    // Legacy format check
-    if (config.image && config.run) {
-      return {
-        language: config.language || 'custom',
-        imageName: config.image,
-        runCommand: config.run
-      };
-    }
-
-    // Invalid format
-    throw new Error("Invalid configuration: 'stages' map or 'image' and 'run' fields are required in magnus-ci.json.");
-  }
-
-  // 2. Automated Fallbacks
-  // Node.js
-  if (await fileExists('package.json')) {
-    return {
-      language: 'Node.js',
-      imageName: 'node:20-alpine',
-      runCommand: 'npm ci || npm install && npm test -- --passWithNoTests && npm run build --if-present'
-    };
-  }
-
-  // Go
-  if (await fileExists('go.mod')) {
-    return {
-      language: 'Go',
-      imageName: 'golang:1.21-alpine',
-      runCommand: 'go test -v ./...'
-    };
-  }
-
-  // Python
-  if (await fileExists('requirements.txt') || await fileExists('pyproject.toml') || await fileExists('setup.py')) {
-    const installCmd = await fileExists('requirements.txt') ? 'pip install -r requirements.txt && ' : '';
-    return {
-      language: 'Python',
-      imageName: 'python:3.10-alpine',
-      runCommand: `${installCmd}python -m unittest discover`
-    };
-  }
-
-  // Java Maven
-  if (await fileExists('pom.xml')) {
-    return {
-      language: 'Java (Maven)',
-      imageName: 'maven:3.9-eclipse-temurin-17-alpine',
-      runCommand: 'mvn test'
-    };
-  }
-
-  // Java Gradle
-  if (await fileExists('build.gradle')) {
-    return {
-      language: 'Java (Gradle)',
-      imageName: 'gradle:8-jdk17-alpine',
-      runCommand: 'gradle test'
-    };
-  }
-
-  // C/C++ CMake
-  if (await fileExists('CMakeLists.txt')) {
-    return {
-      language: 'C/C++ (CMake)',
-      imageName: 'gcc:13',
-      runCommand: 'mkdir -p build && cd build && cmake .. && make && ctest'
-    };
-  }
-
-  // C/C++ Makefile
-  if (await fileExists('Makefile')) {
-    return {
-      language: 'C/C++ (Make)',
-      imageName: 'gcc:13',
-      runCommand: 'make test'
-    };
-  }
-
-  throw new Error("Could not auto-detect project language type. Please add a 'magnus-ci.json' file to configure your build environment.");
-};
-
-// --- Test Summary Parser Helper ---
-const extractTestSummary = (logs, defaultMsg) => {
-  if (!logs) return defaultMsg;
-  const cleanLogs = logs.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-
-  const jestRegex = /Tests:\s+(?:(\d+)\s+failed,\s+)?(?:(\d+)\s+passed,\s+)?(\d+)\s+total/;
-  const jestMatch = cleanLogs.match(jestRegex);
-  if (jestMatch) {
-    const failed = parseInt(jestMatch[1] || 0, 10);
-    const passed = parseInt(jestMatch[2] || 0, 10);
-    const total = parseInt(jestMatch[3] || 0, 10);
-    if (failed > 0) return `${passed}/${total} passed (${failed} failed)`;
-    return `${passed}/${total} passed`;
-  }
-
-  const pytestRegex = /==+\s+(?:(\d+)\s+failed,\s+)?(?:(\d+)\s+passed)?.*in\s+([\d.]+s)\s+==+/;
-  const pytestMatch = cleanLogs.match(pytestRegex);
-  if (pytestMatch) {
-    const failed = parseInt(pytestMatch[1] || 0, 10);
-    const passed = parseInt(pytestMatch[2] || 0, 10);
-    if (failed > 0) return `${passed} passed, ${failed} failed`;
-    return `${passed} passed`;
-  }
-
-  const junitRegex = /Tests run:\s*(\d+),\s*Failures:\s*(\d+),\s*Errors:\s*(\d+)/;
-  const junitMatch = cleanLogs.match(junitRegex);
-  if (junitMatch) {
-    const run = parseInt(junitMatch[1] || 0, 10);
-    const failures = parseInt(junitMatch[2] || 0, 10);
-    const errors = parseInt(junitMatch[3] || 0, 10);
-    const passed = run - failures - errors;
-    if (failures > 0 || errors > 0) return `${passed}/${run} passed (${failures + errors} failed)`;
-    return `${passed}/${run} passed`;
-  }
-
-  if (cleanLogs.includes('PASS') && cleanLogs.includes('ok')) {
-    return 'All tests passed';
-  }
-  if (cleanLogs.includes('FAIL') && cleanLogs.includes('--- FAIL:')) {
-    return 'Some tests failed';
-  }
-
-  return defaultMsg;
-};
-
-const extractDetailedTestResults = (logs) => {
-  if (!logs) return 'No build logs available.';
-  const cleanLogs = logs.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-  const lines = cleanLogs.split('\n');
-  const results = [];
-  
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('✓') || trimmed.startsWith('✕') || trimmed.startsWith('PASS') || trimmed.startsWith('FAIL')) {
-      results.push(trimmed);
-    }
-    if ((trimmed.includes('PASSED') || trimmed.includes('FAILED')) && trimmed.includes('::')) {
-      results.push(trimmed);
-    }
-  }
-
-  if (results.length === 0) {
-    const suitesIndex = cleanLogs.indexOf('Test Suites:');
-    if (suitesIndex !== -1) {
-      return cleanLogs.substring(suitesIndex).trim();
-    }
-    return 'Detailed test results not parsed. Please view CI/CD Dashboard.';
-  }
-
-  return results.join('\n');
-};
-
-// --- Auto-Revert Commit Helper ---
-const handleRevertCommit = async (workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs) => {
-  if (!process.env.GITHUB_TOKEN) {
-    logWorker(`[REVERT] No GITHUB_TOKEN configured. Cannot auto-revert commit.`);
-    return `\n[REVERT] No GITHUB_TOKEN configured. Cannot auto-revert commit.\n`;
-  }
-
-  let owner = '';
-  let repoName = '';
-  try {
-    const parts = repoUrl.split('/');
-    repoName = parts.pop().replace('.git', '');
-    owner = parts.pop();
-  } catch (e) {}
-
-  logWorker(`[REVERT] Initiating auto-revert of commit ${commitHash.slice(0, 7)} on branch ${branchName}...`);
-  let logOutput = `\n[REVERT] Auto-revert started for commit ${commitHash} on branch ${branchName}\n`;
-  
-  try {
-    const repoGit = simpleGit(workspacePath);
-    
-    // Configure identity so git doesn't complain about identity not set
-    await repoGit.addConfig('user.name', 'Magnus CI');
-    await repoGit.addConfig('user.email', 'ci@magnus.internal');
-    logOutput += `[REVERT] Configured git identity to Magnus CI.\n`;
-
-    // Embed GITHUB_TOKEN in remote URL for write/push permissions
-    const authenticatedUrl = repoUrl.replace('https://', `https://${process.env.GITHUB_TOKEN}@`);
-    await repoGit.remote(['set-url', 'origin', authenticatedUrl]);
-    logOutput += `[REVERT] Remote URL configured with GITHUB_TOKEN.\n`;
-
-    // Retrieve original commit subject
-    const originalSubject = await repoGit.raw(['log', '-1', '--format=%s', commitHash])
-      .then(s => s.trim())
-      .catch(() => `commit ${commitHash.slice(0, 7)}`);
-
-    // Perform Revert locally but do not commit yet
-    await repoGit.raw(['revert', '--no-commit', commitHash]);
-    logOutput += `[REVERT] Revert changes staged locally.\n`;
-
-    // Format custom commit message containing test summary
-    const testDetails = extractDetailedTestResults(buildLogs);
-    const commitMsg = `Revert "${originalSubject}"
-
-This reverts commit ${commitHash}.
-
-Test Case Failures/Details:
-${testDetails}`;
-
-    // Commit changes with custom description
-    await repoGit.commit(commitMsg);
-    logOutput += `[REVERT] Custom revert commit created locally.\n`;
-
-    // Push changes back to origin
-    await repoGit.push('origin', `HEAD:${branchName}`);
-    logOutput += `[REVERT] Revert commit successfully pushed to branch ${branchName}.\n`;
-    logWorker(`[REVERT] Revert commit successfully pushed to branch ${branchName}.`);
-  } catch (err) {
-    logOutput += `[REVERT] Error performing auto-revert: ${err.message}\n`;
-    logError(`[REVERT] Auto-revert failed for build ID ${buildId}:`, err.message);
-  }
-  return logOutput;
-};
-
-// --- Artifact Harvesting Helper ---
-async function harvestArtifacts(workspacePath, buildId) {
-  const artifacts = [];
-  const publicArtifactsDir = path.join(__dirname, '../public/artifacts', String(buildId));
-  await fs.mkdir(publicArtifactsDir, { recursive: true });
-
-  const fileExists = async (p) => {
-    try {
-      await fs.access(p);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  // 1. Jest Coverage
-  const jestCoveragePath = path.join(workspacePath, 'coverage/lcov-report');
-  if (await fileExists(jestCoveragePath)) {
-    const dest = path.join(publicArtifactsDir, 'coverage');
-    await fs.mkdir(dest, { recursive: true });
-    await fs.cp(jestCoveragePath, dest, { recursive: true });
-    artifacts.push({
-      name: "Jest Test Coverage Report",
-      path: `/artifacts/${buildId}/coverage/index.html`,
-      type: "html"
-    });
-  }
-
-  // 2. Python Coverage
-  const pyCoveragePath = path.join(workspacePath, 'htmlcov');
-  if (await fileExists(pyCoveragePath)) {
-    const dest = path.join(publicArtifactsDir, 'htmlcov');
-    await fs.mkdir(dest, { recursive: true });
-    await fs.cp(pyCoveragePath, dest, { recursive: true });
-    artifacts.push({
-      name: "Python Test Coverage Report",
-      path: `/artifacts/${buildId}/htmlcov/index.html`,
-      type: "html"
-    });
-  }
-
-  // 3. Search for compiled binaries (.jar, .war, .zip, etc.)
-  const scanDirs = [
-    path.join(workspacePath, 'target'),
-    path.join(workspacePath, 'build/libs'),
-    workspacePath
-  ];
-
-  for (const dir of scanDirs) {
-    if (await fileExists(dir)) {
-      try {
-        const files = await fs.readdir(dir, { withFileTypes: true });
-        for (const file of files) {
-          if (file.isFile()) {
-            const ext = path.extname(file.name).toLowerCase();
-            const srcFile = path.join(dir, file.name);
-
-            // Determine if the file is executable on Unix/Linux systems
-            let isExecutable = false;
-            try {
-              const stats = await fs.stat(srcFile);
-              isExecutable = !!(stats.mode & 0o111);
-            } catch (statErr) {
-              // Ignore stat error
-            }
-
-            // Exclude hidden files or source code/config files from being classified as binaries
-            const isSourceOrConfig = ['.cpp', '.c', '.h', '.hpp', '.o', '.js', '.json', '.md', '.txt', '.yml', '.yaml', '.sh'].includes(ext);
-
-            const isAllowedArtifact = 
-              ['.jar', '.war', '.zip', '.exe', '.msi', '.out', '.bin'].includes(ext) ||
-              file.name.endsWith('.tar.gz') ||
-              file.name.endsWith('.tgz') ||
-              (ext === '' && isExecutable && !file.name.startsWith('.') && !isSourceOrConfig);
-
-            if (isAllowedArtifact) {
-              const destFileDir = path.join(publicArtifactsDir, 'bin');
-              await fs.mkdir(destFileDir, { recursive: true });
-              const destFile = path.join(destFileDir, file.name);
-              await fs.copyFile(srcFile, destFile);
-              artifacts.push({
-                name: `Built Binary (${file.name})`,
-                path: `/artifacts/${buildId}/bin/${file.name}`,
-                type: "file"
-              });
-            }
-          }
-        }
-      } catch (err) {
-        // Log reading error and skip
-      }
-    }
-  }
-
-  return artifacts;
-}
-
 // --- Worker Loop ---
+////////////////////////////////////////////////////////////////////////////////
+// Worker Task Callback (BullMQ Daemon)
+//
+// Purpose: Main entry point for the job processor. Evaluates builds sequentially
+//          or concurrently based on setup thread limits.
+// Inputs: job (BullMQ job wrapper)
+// Outputs: Promise resolving on completion
+// Side Effects: Modifies DB, writes workspaces, spawns containers.
+// Time Complexity: O(B) where B is duration of build steps.
+////////////////////////////////////////////////////////////////////////////////
 const worker = new Worker('build-queue', async job => {
   const { buildId, repoUrl, commitHash, branchName = 'main' } = job.data;
   
@@ -461,7 +112,11 @@ const worker = new Worker('build-queue', async job => {
 
 
   try {
-    // 1. Update status to RUNNING
+    //--------------------------------------------------------------------------
+    // Step 1: Update status to RUNNING
+    // We transactionally force status to RUNNING in PostgreSQL and trigger
+    // the GitHub check pending update API to notify developers in PR streams.
+    //--------------------------------------------------------------------------
     await pool.query(
       "UPDATE builds SET status = 'RUNNING', started_at = NOW() WHERE id = $1",
       [buildId]
@@ -470,12 +125,20 @@ const worker = new Worker('build-queue', async job => {
     
     await updateGitHubStatus(owner, repoName, commitHash, 'pending', 'Pipeline execution in progress...', targetUrl);
 
-    // 2. Create local workspace
+    //--------------------------------------------------------------------------
+    // Step 2: Create local workspace
+    // Generate an isolated, unique host directory to prevent file system clashes
+    // with other concurrent runner threads.
+    //--------------------------------------------------------------------------
     workspacePath = await createWorkspace(buildId);
     buildLogs += logEngine(`Created workspace path: ${styles.dim}${workspacePath}${styles.reset}\n`);
     await saveLogs(buildId, buildLogs);
 
-    // 3. Git Clone & Checkout
+    //--------------------------------------------------------------------------
+    // Step 3: Git Clone & Checkout
+    // Clones the code to the workspace and checkouts the specific commit SHA
+    // to guarantee execution consistency.
+    //--------------------------------------------------------------------------
     buildLogs += logEngine(`Cloning repository... 📥\n`);
     await saveLogs(buildId, buildLogs);
     const git = simpleGit();
@@ -490,7 +153,10 @@ const worker = new Worker('build-queue', async job => {
     buildLogs += logEngine(`${styles.green}✔ Target commit successfully isolated.${styles.reset}\n`);
     await saveLogs(buildId, buildLogs);
 
-    // 4. Detect environment configuration
+    //--------------------------------------------------------------------------
+    // Step 4: Detect environment configuration
+    // Inspects file signatures to map environments and resolve dependencies.
+    //--------------------------------------------------------------------------
     buildLogs += logEngine(`Detecting project language and build environment...\n`);
     await saveLogs(buildId, buildLogs);
     
@@ -504,6 +170,11 @@ const worker = new Worker('build-queue', async job => {
     const repositoryId = repoRes.rows[0]?.repository_id || 1;
 
     // Restore dependency cache if available
+    //--------------------------------------------------------------------------
+    // Caching Restoration Phase
+    // Checks for pre-packaged dependencies tarball archives in the local directory.
+    // If found, pulls them to the workspace path before execution starts.
+    //--------------------------------------------------------------------------
     logWorker(`Resolving dependency caching strategy...`);
     buildLogs += logEngine(`Resolving dependency caching strategy...\n`);
     await saveLogs(buildId, buildLogs);
@@ -513,7 +184,12 @@ const worker = new Worker('build-queue', async job => {
     buildLogs += logEngine(`${cacheResult.success ? styles.green : styles.yellow}ℹ ${cacheResult.message}${styles.reset}\n`);
     await saveLogs(buildId, buildLogs);
 
-    // Determine cache bind mounts dynamically
+    //--------------------------------------------------------------------------
+    // Host Mounts & Cache Volumes Mapping
+    // Maps workspace directories dynamically to target container cache paths
+    // (such as npm node_modules, maven .m2 directories, gradle .gradle files, etc.)
+    // to preserve package state between runs.
+    //--------------------------------------------------------------------------
     const binds = [
       `${workspacePath}:/app`,
       '/var/run/docker.sock:/var/run/docker.sock'
@@ -537,7 +213,11 @@ const worker = new Worker('build-queue', async job => {
       binds.push(`${localGoCache}:/go/pkg/mod`);
     }
 
-    // 5. Load pipeline DAG stages
+    //--------------------------------------------------------------------------
+    // Step 5: Load pipeline DAG stages
+    // Reads custom stage configurations. Ensures that the execution graph is
+    // cycle-free (Acyclic check) using DFS cycle detection to prevent deadlocks.
+    //--------------------------------------------------------------------------
     buildLogs += logEngine(`Loading pipeline stages...\n`);
     await saveLogs(buildId, buildLogs);
     const stages = await loadPipelineStages(workspacePath, language, imageName);
@@ -553,7 +233,26 @@ const worker = new Worker('build-queue', async job => {
     }
     await saveLogs(buildId, buildLogs);
 
-    // Stage execution runner
+    ////////////////////////////////////////////////////////////////////////////
+    // Nested Worker Helper: runStageFn
+    // Purpose: Spawns and manages a Docker container to execute a single stage.
+    // Inputs: stageName (string), stageConfig (object)
+    // Outputs: boolean (true on success exit code 0, false otherwise)
+    // Side Effects: Pulls images, creates/starts containers, streams stdout logs.
+    // Time Complexity: O(C) where C is stage command run duration.
+    //
+    // Container Sandboxing (Security & Resource Quotas):
+    // Q: Why did you bind '/var/run/docker.sock:/var/run/docker.sock'?
+    // A: This enables Docker-Out-Of-Docker (DooD). Containers spawned by this stage
+    //    can interact with the host Docker daemon. This allows sibling containers
+    //    to run without nested virtualization performance overhead.
+    // Q: Why use HostConfig.AutoRemove: true?
+    // A: To prevent container storage accumulation on the host. When a build
+    //    container exits, it is deleted automatically by Docker.
+    // Q: Why use Tty: true?
+    // A: Allocating a Pseudo-TTY merges stdout and stderr streams into a single
+    //    ordered stream, matching what a user would see in an interactive shell.
+    ////////////////////////////////////////////////////////////////////////////
     const runStageFn = async (stageName, stageConfig) => {
       const stageImageName = stageConfig.image || imageName;
       const stageRunCommand = stageConfig.run;
@@ -605,6 +304,12 @@ const worker = new Worker('build-queue', async job => {
       let lastLogSave = Date.now();
       const stagePrefix = `${styles.bright}${styles.dim}[${stageName.toUpperCase()}]${styles.reset} `;
 
+      //------------------------------------------------------------------------
+      // Throttled Stream Log Batching
+      // Rather than executing a PostgreSQL update query for every single output line
+      // chunk, logs are accumulated in memory and written in throttled intervals
+      // (at most once every 1000ms) to reduce DB socket overhead.
+      //------------------------------------------------------------------------
       stageLogStream.on('data', (chunk) => {
         const output = chunk.toString();
         const prefixed = output
@@ -628,6 +333,12 @@ const worker = new Worker('build-queue', async job => {
       logWorker(`Stage ${stageName} runtime session active.`);
 
       // Implement configurable timeout per stage (default: 2 minutes)
+      //------------------------------------------------------------------------
+      // Configurable Timeout Guard
+      // Creates a timeout promise wrapper. If the container does not exit before
+      // the deadline limit, the promise rejects, throwing a timeout error and
+      // triggering container termination.
+      //------------------------------------------------------------------------
       const stageTimeoutMs = (stageConfig.timeout || 120) * 1000;
       const stageTimeoutMinutes = Math.round((stageConfig.timeout || 120) / 60);
       let stageTimeoutId;
@@ -638,6 +349,11 @@ const worker = new Worker('build-queue', async job => {
       });
 
       try {
+        //----------------------------------------------------------------------
+        // Asynchronous Wait Gating
+        // Executes Promise.race between the Dockerode container wait promise and
+        // the timeout promise to resolve exit status or trigger timeout handlers.
+        //----------------------------------------------------------------------
         const stageExitCode = await Promise.race([
           stageContainer.wait().then(res => res.StatusCode),
           stageTimeoutPromise
@@ -663,7 +379,20 @@ const worker = new Worker('build-queue', async job => {
       }
     };
 
-    // Aggregate metrics monitoring for all running containers
+    //--------------------------------------------------------------------------
+    // Telemetry Collection Loop
+    // Periodically polls CPU/Memory stats from the Docker Engine daemon for all
+    // active container instances every 2 seconds, updates metrics logs in DB.
+    //
+    // Interview Discussion (Polling CPU/Mem):
+    // Q: Why did you compute CPU delta vs system delta?
+    // A: Docker statistics outputs raw CPU clock ticks. To convert this into a
+    //    meaningful CPU percentage (e.g. 50%), we calculate the container usage
+    //    delta relative to the system's global CPU usage delta multiplied by active cores.
+    // Q: Does polling stats degrade engine performance?
+    // A: No. We pass `stream: false` to request a one-off stats payload instead of
+    //    keeping persistent telemetry streams open. This minimizes socket overhead.
+    //--------------------------------------------------------------------------
     const metrics = [];
     statsInterval = setInterval(async () => {
       const activeStageNames = Object.keys(activeContainers);
@@ -715,11 +444,20 @@ const worker = new Worker('build-queue', async job => {
         }
       } catch (err) {}
     }, 2000);
-    // 6. Execute stages via dynamic promise coordinator
+
+    //--------------------------------------------------------------------------
+    // Step 6: Pipeline Stages Execution
+    // Resolves the topological graph concurrency order and executes stages.
+    //--------------------------------------------------------------------------
     const states = await executeDAG(stages, runStageFn);
     clearInterval(statsInterval);
 
-    // Final outcome checks
+    //--------------------------------------------------------------------------
+    // Finalization Phase
+    // Evaluates test outcomes, saves dependency caches, harvests binaries,
+    // and sends status notifications to GitHub. If the build failed, triggers
+    // the auto-revert checkout process.
+    //--------------------------------------------------------------------------
     const allPassed = Object.values(states).every(state => state === 'SUCCESS');
     const exitCode = allPassed ? 0 : 1;
 
@@ -805,6 +543,13 @@ const worker = new Worker('build-queue', async job => {
     }
 
     await saveLogs(buildId, buildLogs);
+    //--------------------------------------------------------------------------
+    // Workspace Cleaning Integrity
+    // Q: Why execute cleanWorkspace inside a finally {} block?
+    // A: To guarantee cleanup. Regardless of whether builds succeed, fail, or crash
+    //    with uncaught exceptions, this block executes to wipe the local clone files
+    //    from disk, preventing disk exhaustion and security leaks.
+    //--------------------------------------------------------------------------
   } finally {
     if (statsInterval) {
       clearInterval(statsInterval);
@@ -816,7 +561,10 @@ const worker = new Worker('build-queue', async job => {
   }
 }, { connection, concurrency: 4 });
 
-// --- Global Worker Events ---
+//------------------------------------------------------------------------------
+// Global Worker Event Observers
+// Enforces monitoring hooks to track build queues completion and lifecycle failures.
+//------------------------------------------------------------------------------
 worker.on('completed', job => {
   logSuccess(`Job #${job.id} has fully executed and finished context routines.`);
 });
