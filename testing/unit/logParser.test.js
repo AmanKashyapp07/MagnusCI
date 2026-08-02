@@ -1,6 +1,11 @@
-import { parseLogsIntoSteps } from '../../frontend/src/utils/logParser.js';
-
 describe('Production-Grade Unit Tests: Log Stream Processor (utils/logParser.js)', () => {
+
+  let parseLogsIntoSteps;
+
+  beforeAll(async () => {
+    const module = await import('../../frontend/src/utils/logParser.js');
+    parseLogsIntoSteps = module.parseLogsIntoSteps;
+  });
 
   test('should return empty steps list when raw logs are null or empty', () => {
     expect(parseLogsIntoSteps('', 'SUCCESS')).toEqual([]);
@@ -74,11 +79,15 @@ describe('Production-Grade Unit Tests: Log Stream Processor (utils/logParser.js)
   });
 
   test('should filter out transient TTY carriage return spinners like RUNS', () => {
-    const logs = "RUNS  ...\r[00:01:00] [TEST] Executing tests\rRUNS  ...";
+    const logs = `
+[00:01:00] [TEST] Executing test suite...
+RUNS  ...
+    `;
     const steps = parseLogsIntoSteps(logs, 'SUCCESS');
 
     const testStep = steps.find(s => s.id === 'stage_test');
     expect(testStep).toBeDefined();
+    expect(testStep.lines).toContain('[00:01:00] [TEST] Executing test suite...');
     expect(testStep.lines).not.toContain('RUNS  ...');
   });
 

@@ -13,7 +13,7 @@ describe('Production-Grade E2E Tests: Live Deployed Deployment (http://magnus-ci
     expect(response.data).toBeDefined();
     expect(response.data.status).toBe('healthy');
     expect(response.data.database).toBe('connected');
-    expect(duration).toBeLessThan(3000); // Response within 3 seconds
+    expect(duration).toBeLessThan(3000);
   });
 
   test('2. Frontend Static Delivery: / should serve React SPA HTML', async () => {
@@ -21,8 +21,8 @@ describe('Production-Grade E2E Tests: Live Deployed Deployment (http://magnus-ci
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('text/html');
-    expect(response.data).toContain('<div id="root">');
-    expect(response.data).toContain('Vite');
+    expect(response.data).toContain('<div id="root"></div>');
+    expect(response.data).toContain('script type="module"');
   });
 
   test('3. OAuth Handshake Entrypoint: /api/auth/github should initiate redirect to GitHub', async () => {
@@ -43,7 +43,7 @@ describe('Production-Grade E2E Tests: Live Deployed Deployment (http://magnus-ci
   });
 
   test('4. Security & CORS Headers Check', async () => {
-    const response = await axios.get(`${TARGET_URL}/api/health`);
+    const response = await axios.get(`${TARGET_URL}/api/health`, { timeout: 10000 });
     expect(response.headers['access-control-allow-origin']).toBeDefined();
     expect(response.headers['x-powered-by']).toBeDefined();
   });

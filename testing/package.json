@@ -4,10 +4,10 @@
   "description": "Production-Grade Test Suite for MagnusCI",
   "main": "jest.config.js",
   "scripts": {
-    "test": "jest --runInBand --detectOpenHandles --forceExit",
-    "test:unit": "jest unit --runInBand",
-    "test:integration": "jest integration --runInBand",
-    "test:e2e": "jest e2e --runInBand --timeout=30000"
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand --detectOpenHandles --forceExit",
+    "test:unit": "NODE_OPTIONS=--experimental-vm-modules jest unit --runInBand",
+    "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest integration --runInBand",
+    "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest e2e --runInBand --timeout=30000"
   },
   "keywords": [
     "ci-cd",
