@@ -1,0 +1,13 @@
+{
+  "name": "ci-cd-engine-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MagnusCI Root Project and Automation Engine",
+  "scripts": {
+    "test": "cd testing && npm install && npm test",
+    "test:unit": "cd testing && npm run test:unit",
+    "test:integration": "cd testing && npm run test:integration",
+    "test:e2e": "cd testing && npm run test:e2e",
+    "build:frontend": "cd frontend && npm install && npm run build"
+  }
+}
