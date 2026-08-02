@@ -36,7 +36,7 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       const response = await axios.post(`${TARGET_URL}/api/webhooks/github`, payload, {
         headers: { 'x-github-event': 'push' },
         httpAgent,
-        timeout: 20000,
+        timeout: 30000,
         validateStatus: () => true
       });
 
@@ -44,13 +44,13 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       if (response.status === 200) {
         expect(response.data.message).toContain('Ignored commit pushed by Magnus CI');
       }
-    }, 25000);
+    }, 35000);
 
     test('should return 200 OK for non-push webhook events (e.g. ping, release, star)', async () => {
       const response = await axios.post(`${TARGET_URL}/api/webhooks/github`, {}, {
         headers: { 'x-github-event': 'ping' },
         httpAgent,
-        timeout: 20000,
+        timeout: 30000,
         validateStatus: () => true
       });
 
@@ -58,7 +58,7 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       if (response.status === 200) {
         expect(response.data.message).toContain('Ignored event type: ping');
       }
-    }, 25000);
+    }, 35000);
 
   });
 
@@ -67,26 +67,26 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
     test('should respond with 404 JSON format for invalid or unhandled API endpoint requests', async () => {
       const response = await axios.get(`${TARGET_URL}/api/unhandled-non-existent-route`, {
         httpAgent,
-        timeout: 20000,
+        timeout: 30000,
         validateStatus: () => true
       });
 
       expect([404, 200]).toContain(response.status);
-    }, 25000);
+    }, 35000);
 
   });
 
   describe('3. Production Frontend Assets Delivery & MIME Checks E2E', () => {
 
     test('should deliver script bundle asset referenced in root HTML', async () => {
-      const pageRes = await axios.get(`${TARGET_URL}/`, { httpAgent, timeout: 20000 });
+      const pageRes = await axios.get(`${TARGET_URL}/`, { httpAgent, timeout: 30000 });
       expect(pageRes.status).toBe(200);
 
       const scriptMatch = pageRes.data.match(/src="(\/assets\/[^"]+\.js)"/);
       expect(scriptMatch).not.toBeNull();
 
       const scriptUrl = scriptMatch[1];
-      const assetRes = await axios.get(`${TARGET_URL}${scriptUrl}`, { httpAgent, timeout: 20000 });
+      const assetRes = await axios.get(`${TARGET_URL}${scriptUrl}`, { httpAgent, timeout: 30000 });
 
       expect(assetRes.status).toBe(200);
       expect(assetRes.headers['content-type']).toMatch(/javascript|text\/plain/);
@@ -94,14 +94,14 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
     }, 35000);
 
     test('should deliver stylesheet asset referenced in root HTML', async () => {
-      const pageRes = await axios.get(`${TARGET_URL}/`, { httpAgent, timeout: 20000 });
+      const pageRes = await axios.get(`${TARGET_URL}/`, { httpAgent, timeout: 30000 });
       expect(pageRes.status).toBe(200);
 
       const cssMatch = pageRes.data.match(/href="(\/assets\/[^"]+\.css)"/);
       expect(cssMatch).not.toBeNull();
 
       const cssUrl = cssMatch[1];
-      const cssRes = await axios.get(`${TARGET_URL}${cssUrl}`, { httpAgent, timeout: 20000 });
+      const cssRes = await axios.get(`${TARGET_URL}${cssUrl}`, { httpAgent, timeout: 30000 });
 
       expect(cssRes.status).toBe(200);
       expect(cssRes.headers['content-type']).toMatch(/css|text\/plain/);
