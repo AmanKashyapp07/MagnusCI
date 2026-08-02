@@ -1,49 +1,71 @@
-const express = require("express");
-const cors = require("cors");
-const dotenv = require("dotenv");
-const path = require("path");
-dotenv.config();
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const config = require('./config/env');
+const logger = require('./utils/logger');
+const pool = require('./db');
+const errorHandler = require('./middleware/errorHandler');
 
-const pool = require("./db");
-
-const healthRoutes = require("./routes/health");
-const repositoryRoutes = require("./routes/repositories");
-const buildRoutes = require("./routes/builds");
-const webhookRoutes = require("./routes/webhooks");
-const authRoutes = require("./routes/auth");
+// Route Imports
+const healthRoutes = require('./routes/health');
+const repositoryRoutes = require('./routes/repositories');
+const buildRoutes = require('./routes/builds');
+const webhookRoutes = require('./routes/webhooks');
+const authRoutes = require('./routes/auth');
 
 const app = express();
-const PORT = process.env.PORT || 5001;
 
+// Security & Middleware
 app.use(cors());
 
-// Expose public artifacts folder statically
+// Static artifact serving
 app.use('/artifacts', express.static(path.join(__dirname, '../public/artifacts')));
 
-// Configure JSON parser to extract rawBody for signature verification
+// Configure JSON parser to preserve rawBody for timing-safe HMAC signature verification
 app.use(
   express.json({
-    verify: (req, res, buf) => {
+    verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   })
 );
 
-// Routes
-app.use("/api/health", healthRoutes);
-app.use("/api/repositories", repositoryRoutes);
-app.use("/api/builds", buildRoutes);
-app.use("/api/webhooks", webhookRoutes);
-app.use("/api/auth", authRoutes);
+// Route Mountings
+app.use('/api/health', healthRoutes);
+app.use('/api/repositories', repositoryRoutes);
+app.use('/api/builds', buildRoutes);
+app.use('/api/webhooks', webhookRoutes);
+app.use('/api/auth', authRoutes);
 
-app.listen(PORT, () => {
-  console.log(`Backend server is running on http://localhost:${PORT}`);
-  //write database connection health check log
-  pool.query("SELECT NOW()")
+// Global Centralized Error Handler
+app.use(errorHandler);
+
+// Bootstrap Server & DB Check
+const server = app.listen(config.PORT, () => {
+  logger.info(`MagnusCI API Gateway active on http://localhost:${config.PORT}`);
+  
+  pool.query('SELECT NOW()')
     .then(result => {
-      console.log(`Database connection successful. Current time: ${result.rows[0].now}`);
+      logger.info(`PostgreSQL Database connection verified. Server time: ${result.rows[0].now}`);
     })
     .catch(error => {
-      console.error("Database connection failed:", error);
+      logger.error('PostgreSQL Database connection failed:', error);
     });
 });
+
+// Graceful Shutdown Listener
+const gracefulShutdown = (signal) => {
+  logger.warn(`Received ${signal}. Initiating graceful gateway shutdown...`);
+  server.close(() => {
+    logger.info('HTTP Gateway Server closed.');
+    pool.end(() => {
+      logger.info('PostgreSQL Pool closed. Exiting process.');
+      process.exit(0);
+    });
+  });
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+module.exports = app;

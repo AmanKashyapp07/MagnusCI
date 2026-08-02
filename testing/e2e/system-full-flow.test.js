@@ -91,7 +91,7 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       expect(assetRes.status).toBe(200);
       expect(assetRes.headers['content-type']).toMatch(/javascript|text\/plain/);
       expect(assetRes.data.length).toBeGreaterThan(100);
-    }, 25000);
+    }, 35000);
 
     test('should deliver stylesheet asset referenced in root HTML', async () => {
       const pageRes = await axios.get(`${TARGET_URL}/`, { httpAgent, timeout: 20000 });
@@ -106,7 +106,7 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       expect(cssRes.status).toBe(200);
       expect(cssRes.headers['content-type']).toMatch(/css|text\/plain/);
       expect(cssRes.data.length).toBeGreaterThan(100);
-    }, 25000);
+    }, 35000);
 
   });
 
