@@ -12,3 +12,4 @@ backend/caches/
 caches/
 backend/public/artifacts/
 Interview-Prep/
+*.pem
