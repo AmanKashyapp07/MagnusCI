@@ -6,7 +6,7 @@ function parseTimeToSeconds(timeStr) {
   return null;
 }
 
-function stripAnsi(str) {
+export function stripAnsi(str) {
   if (!str) return "";
   
   // 1. Strip ANSI escape codes
