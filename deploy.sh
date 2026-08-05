@@ -10,7 +10,7 @@
 # 1. SSH authentication check
 # 2. Local workspace git status verification
 # 3. Remote git sync (git fetch & git reset)
-# 4. Injects production environment secrets
+# 4. Injects production environment secrets from server backend/.env
 # 5. Container image build (amankashyap07/magnus-api:latest)
 # 6. Container import into k3s image runtime
 # 7. Rollout restart for magnus-api and magnus-worker deployments
@@ -93,6 +93,18 @@ if [ ! -d ".git" ]; then
 fi
 git fetch origin main
 git reset --hard origin/main
+
+echo '[REMOTE] Injecting production secrets into k8s manifests...'
+if [ -f "backend/.env" ]; then
+    export $(grep -v '^#' backend/.env | xargs)
+    if [ -n "$GITHUB_CLIENT_SECRET" ]; then
+        sed -i "s/your_github_client_secret_here/${GITHUB_CLIENT_SECRET}/g" k8s/magnus-api.yaml
+    fi
+    if [ -n "$GITHUB_TOKEN" ]; then
+        sed -i "s/your_github_personal_access_token_here/${GITHUB_TOKEN}/g" k8s/magnus-api.yaml
+        sed -i "s/your_github_personal_access_token_here/${GITHUB_TOKEN}/g" k8s/magnus-worker.yaml
+    fi
+fi
 
 echo '[REMOTE] Building production Docker container image (magnus-api)...'
 sudo docker build -t amankashyap07/magnus-api:latest -f backend/Dockerfile .

@@ -1,4 +1,6 @@
-const pool = require('../db');
+const repositoryRepository = require('../repositories/repositoryRepository');
+const buildRepository = require('../repositories/buildRepository');
+const userRepository = require('../repositories/userRepository');
 const config = require('../config/env');
 const logger = require('../utils/logger');
 const { updateGitHubStatus } = require('../utils/githubStatus');
@@ -18,9 +20,9 @@ class RepoService {
   async getUserToken(userId) {
     if (userId) {
       try {
-        const res = await pool.query('SELECT access_token FROM users WHERE id = $1', [userId]);
-        if (res.rows[0]?.access_token) {
-          return res.rows[0].access_token;
+        const user = await userRepository.findById(userId);
+        if (user?.access_token) {
+          return user.access_token;
         }
       } catch (err) {}
     }
@@ -28,34 +30,17 @@ class RepoService {
   }
 
   async getLatestCommitHash(repositoryId) {
-    const result = await pool.query(
-      `SELECT commit_hash
-       FROM builds
-       WHERE repository_id = $1 AND commit_hash IS NOT NULL
-       ORDER BY created_at DESC, id DESC
-       LIMIT 1`,
-      [repositoryId]
-    );
-
-    return result.rows[0]?.commit_hash || null;
+    return buildRepository.findLatestCommitHash(repositoryId);
   }
 
   async getUserRepositories(userId) {
-    const result = await pool.query(
-      'SELECT * FROM repositories WHERE user_id = $1 ORDER BY created_at DESC',
-      [userId]
-    );
-    return result.rows;
+    return repositoryRepository.findByUserId(userId);
   }
 
   async registerRepository(name, githubUrl, userId) {
     const normalizedUrl = this.normalizeUrl(githubUrl);
-    const result = await pool.query(
-      'INSERT INTO repositories (name, github_url, user_id) VALUES ($1, $2, $3) RETURNING *',
-      [name, normalizedUrl, userId]
-    );
+    const repo = await repositoryRepository.create(name, normalizedUrl, userId);
 
-    const repo = result.rows[0];
     const parsed = this.parseRepoUrl(normalizedUrl);
     if (parsed) {
       this.registerGitHubWebhook(parsed.owner, parsed.repo, userId).catch(err => {
@@ -67,31 +52,24 @@ class RepoService {
   }
 
   async syncWebhook(repoId, userId) {
-    const repoResult = await pool.query(
-      'SELECT id, github_url FROM repositories WHERE id = $1 AND user_id = $2',
-      [repoId, userId]
-    );
-    if (repoResult.rowCount === 0) {
+    const repository = await repositoryRepository.findByIdAndUserId(repoId, userId);
+    if (!repository) {
       return null;
     }
-    const repoInfo = this.parseRepoUrl(repoResult.rows[0].github_url);
+    const repoInfo = this.parseRepoUrl(repository.github_url);
     if (repoInfo) {
       await this.registerGitHubWebhook(repoInfo.owner, repoInfo.repo, userId);
     }
-    return repoResult.rows[0];
+    return repository;
   }
 
   async deleteRepository(repoId, userId) {
-    const repoResult = await pool.query(
-      'SELECT id, github_url FROM repositories WHERE id = $1 AND user_id = $2',
-      [repoId, userId]
-    );
+    const repository = await repositoryRepository.findByIdAndUserId(repoId, userId);
 
-    if (repoResult.rowCount === 0) {
+    if (!repository) {
       return null;
     }
 
-    const repository = repoResult.rows[0];
     const repoInfo = this.parseRepoUrl(repository.github_url);
     const latestCommitHash = await this.getLatestCommitHash(repository.id);
     const token = await this.getUserToken(userId);
@@ -116,12 +94,7 @@ class RepoService {
       await this.unregisterGitHubWebhook(repoInfo.owner, repoInfo.repo, userId);
     }
 
-    const deleteResult = await pool.query(
-      'DELETE FROM repositories WHERE id = $1 AND user_id = $2 RETURNING *',
-      [repoId, userId]
-    );
-
-    return deleteResult.rows[0];
+    return repositoryRepository.deleteByIdAndUserId(repoId, userId);
   }
 
   async registerGitHubWebhook(owner, repo, userId = null) {

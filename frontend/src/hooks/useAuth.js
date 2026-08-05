@@ -3,24 +3,23 @@ import { createAuthenticatedRequest } from "../api/client";
 import { getCurrentUser, getGithubLoginUrl } from "../api/authApi";
 
 export function useAuth() {
-  const [token, setToken] = useState(() => localStorage.getItem("token") || "");
+  const [token, setToken] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const redirectToken = params.get("token");
+    if (redirectToken) {
+      localStorage.setItem("token", redirectToken);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return redirectToken;
+    }
+    return localStorage.getItem("token") || "";
+  });
+
   const [user, setUser] = useState(null);
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem("token");
     setToken("");
     setUser(null);
-  }, []);
-
-  // Check URL parameters for OAuth token redirect from GitHub callback
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const redirectToken = params.get("token");
-    if (redirectToken) {
-      localStorage.setItem("token", redirectToken);
-      setToken(redirectToken);
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
   }, []);
 
   const fetchWithAuth = useCallback(

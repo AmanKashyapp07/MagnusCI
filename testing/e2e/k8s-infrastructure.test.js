@@ -30,14 +30,15 @@ describe('Production-Grade Kubernetes Infrastructure Test Suite', () => {
     for (const app of requiredApps) {
       const matchingPod = pods.find(p => {
         const labels = p.metadata.labels || {};
-        return labels.app === app;
+        const isApp = labels.app === app;
+        const isNotDeleting = !p.metadata.deletionTimestamp;
+        const isRunning = p.status.phase === 'Running';
+        const containerStatuses = p.status.containerStatuses || [];
+        const isReady = containerStatuses.length > 0 && containerStatuses[0].ready === true;
+        return isApp && isNotDeleting && isRunning && isReady;
       });
 
       expect(matchingPod).toBeDefined();
-      expect(matchingPod.status.phase).toBe('Running');
-      const containerStatuses = matchingPod.status.containerStatuses || [];
-      expect(containerStatuses.length).toBeGreaterThan(0);
-      expect(containerStatuses[0].ready).toBe(true);
     }
   });
 
