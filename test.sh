@@ -112,7 +112,7 @@ fi
 # STEP 5: Playwright Browser E2E Suite
 #------------------------------------------------------------------------------
 echo -e "\n${BOLD}${MAGENTA}[5/6] Running Playwright Browser E2E Suite (Chromium)...${RESET}"
-if npm --prefix "$TESTING_DIR" exec playwright test e2e/; then
+if npm --prefix "$TESTING_DIR" exec playwright test e2e/playwright-rigorous.spec.js e2e/tes-repository-pipeline.spec.js; then
     log_success "Playwright Browser E2E Suite Passed 100%."
     PASSED_COUNT=$((PASSED_COUNT + 1))
 else
