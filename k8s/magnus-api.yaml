@@ -14,7 +14,8 @@ spec:
     spec:
       containers:
         - name: magnus-api
-          image: amankashyap07/magnus-api:latest # Placeholder for built docker image
+          image: amankashyap07/magnus-api:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5001
           env:

@@ -14,7 +14,8 @@ spec:
     spec:
       containers:
         - name: magnus-worker
-          image: amankashyap07/magnus-worker:latest # Placeholder for built docker image
+          image: amankashyap07/magnus-worker:latest
+          imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
               value: "redis"
