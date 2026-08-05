@@ -298,13 +298,14 @@ This project has been fully deployed on a production Azure Virtual Machine (Ubun
 <!-- FUTURE ROADMAP -->
 ## Future Scaling Scope & Kubernetes Roadmap
 
-To scale MagnusCI to handle 10,000+ builds per day for enterprise workloads, the architecture is designed to scale horizontally via a Kubernetes deployment (configuration templates located inside `k8s/`):
+To scale MagnusCI to handle 10,000+ builds per day for enterprise workloads **without incurring cloud infrastructure costs ($0/month)**, the architecture is designed to scale horizontally using 100% free, self-hosted Kubernetes ecosystems (configuration templates located inside [`k8s/`](file:///Users/amankashyap/Documents/ci-cd-engine/k8s)):
 
-1. **Stateless API Gateway Scaling:** Deploy Express gateways inside a K8s cluster as a stateless `Deployment`, using a **Horizontal Pod Autoscaler (HPA)** and an **Application Load Balancer (ALB)** to manage webhook spikes.
-2. **Broker Sharding:** Replace the local Redis instance with an **AWS ElastiCache Redis Cluster** configured with master-replica replication and database sharding.
-3. **Serverless Build Runners:** Refactor the worker daemon to call the **Kubernetes API Server** using the K8s Client SDK. Each build stage will be spawned dynamically as a short-lived **Kubernetes Job Pod**, allowing the **Cluster Autoscaler** to provision compute resources on demand.
-4. **Hardware Virtualization Sandboxing:** Replace shared-kernel Docker runtimes with **AWS Firecracker MicroVMs** or **Kata Containers** to prevent container-breakout attacks.
-5. **Distributed Storage:** Move dependency caches and terminal execution logs to **Amazon S3** cached globally via a **CloudFront CDN** to remove local disk volume constraints.
+1. **Zero-Cost Cluster Infrastructure (k3s / Oracle Cloud Always Free):** Deploy a multi-node Kubernetes cluster using **k3s** (lightweight Kubernetes) hosted on Oracle Cloud's Always Free tier (4 OCPUs, 24 GB RAM) or local/homelab nodes.
+2. **Stateless Gateway Auto-Scaling:** Deploy Express API gateways as a stateless Kubernetes `Deployment` coupled with a **Horizontal Pod Autoscaler (HPA)** and **Nginx Ingress Controller** with **cert-manager** for automated Let's Encrypt TLS certificates.
+3. **In-Cluster Distributed Queue & Database:** Run Redis and PostgreSQL as Kubernetes `StatefulSets` backed by local PersistentVolumes instead of paid cloud managed database services.
+4. **Serverless Ephemeral Job Runners:** Refactor the worker daemon to invoke the **Kubernetes API Server** via `@kubernetes/client-node`. Each build stage spawns as a short-lived **Kubernetes Job Pod**, leveraging automatic pod lifecycle cleanup (`ttlSecondsAfterFinished`).
+5. **Daemonless Container Isolation (Kaniko / Rootless Podman):** Execute container image builds securely inside Kubernetes Jobs using **Kaniko** or **Rootless Podman**, removing root Docker daemon socket vulnerabilities without paid MicroVM infrastructure.
+6. **Zero-Cost Object Storage (MinIO S3 Alternative):** Store SHA-256 dependency caches and build log archives in a self-hosted **MinIO** instance deployed within the cluster, replacing Amazon S3 without storage fees.
 
 
 

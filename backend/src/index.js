@@ -53,6 +53,28 @@ const server = app.listen(config.PORT, () => {
     });
 });
 
+// Socket.io + Redis Adapter Setup (Step 1 Implementation)
+const { Server } = require('socket.io');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const { createClient } = require('redis');
+
+const io = new Server(server, {
+  cors: { origin: '*' }
+});
+
+const pubClient = createClient({ url: `redis://${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || 6379}` });
+const subClient = pubClient.duplicate();
+
+Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
+  io.adapter(createAdapter(pubClient, subClient));
+  logger.info('⚡ Socket.io Redis adapter initialized for multi-pod scaling');
+}).catch(err => {
+  logger.error('Failed to initialize Redis Adapter for Socket.io:', err);
+});
+
+// Expose io instance to Express app
+app.set('io', io);
+
 // Graceful Shutdown Listener
 const gracefulShutdown = (signal) => {
   logger.warn(`Received ${signal}. Initiating graceful gateway shutdown...`);
