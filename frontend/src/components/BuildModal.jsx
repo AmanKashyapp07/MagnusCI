@@ -1,6 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import MetricsChart from './MetricsChart';
 import { parseLogsIntoSteps } from '../utils/logParser';
+import { AnsiUp } from 'ansi_up';
+
+const ansiUp = new AnsiUp();
 
 const stripAnsi = (str) => {
   if (!str) return "";
@@ -317,26 +320,26 @@ export default function BuildModal({
                     
                     {/* Step Body (Logs) */}
                     {isExpanded && (
-                      <div className="border-t border-[#333333] bg-[#1E1E1E] p-4 font-mono text-[13px] leading-relaxed overflow-x-auto custom-scrollbar flex flex-col gap-1">
+                      <div className="border-t border-[#333333] bg-[#0d0d0d] p-4 font-mono text-[13px] leading-relaxed overflow-x-auto custom-scrollbar flex flex-col gap-1 shadow-inner">
                         {step.lines.length === 0 ? (
                           <div className="text-[#858585] italic">No logs generated for this step.</div>
                         ) : (
                           step.lines.map((line, lineIdx) => {
-                            const isErrorLine = line.includes('❌') || line.toLowerCase().includes('error') || line.toLowerCase().includes('failed');
+                            const isErrorLine = line.includes('❌');
                             const isWarningLine = line.toLowerCase().includes('warning') || line.toLowerCase().includes('warn');
+                            const htmlString = ansiUp.ansi_to_html(line);
                             return (
                               <div
                                 key={lineIdx}
                                 className={`px-2 -mx-2 rounded transition-colors hover:bg-[#2A2D2E] ${
                                   isErrorLine
-                                    ? 'text-[#F87171] bg-[#F87171]/5'
+                                    ? 'text-[#F87171] bg-[#F87171]/5 border-l-2 border-[#F87171]'
                                     : isWarningLine
-                                    ? 'text-[#FBBF24]'
-                                    : 'text-[#D4D4D4]'
+                                    ? 'text-[#FBBF24] border-l-2 border-[#FBBF24]'
+                                    : 'text-[#D4D4D4] border-l-2 border-transparent'
                                 }`}
-                              >
-                                {line}
-                              </div>
+                                dangerouslySetInnerHTML={{ __html: htmlString || ' ' }}
+                              />
                             );
                           })
                         )}
@@ -347,9 +350,9 @@ export default function BuildModal({
               })}
             </div>
           ) : (
-            <div className="whitespace-pre-wrap break-all leading-relaxed flex flex-col gap-1">
-              {stripAnsi(logs).split('\n').map((line, idx) => (
-                <div key={idx} className="hover:bg-[#2A2D2E] px-2 -mx-2 rounded transition-colors">{line || ' '}</div>
+            <div className="whitespace-pre-wrap break-all leading-relaxed flex flex-col gap-1 bg-[#0d0d0d] p-4 rounded-lg shadow-inner">
+              {logs.split('\n').map((line, idx) => (
+                <div key={idx} className="hover:bg-[#2A2D2E] px-2 -mx-2 rounded transition-colors" dangerouslySetInnerHTML={{ __html: ansiUp.ansi_to_html(line) || ' ' }} />
               ))}
             </div>
           )}

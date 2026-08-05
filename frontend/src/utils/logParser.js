@@ -8,27 +8,27 @@ function parseTimeToSeconds(timeStr) {
 
 function stripAnsi(str) {
   if (!str) return "";
-  
-  // 1. Strip ANSI escape codes
-  let cleaned = str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+  return str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+}
 
-  // 2. Process carriage returns (\r) and filter out interactive Jest Tty updates (like "RUNS  ...")
-  const lines = cleaned.split('\n');
+function processRawLines(rawLogs) {
+  if (!rawLogs) return [];
+  const lines = rawLogs.split('\n');
   const processedLines = [];
-
+  
   for (let line of lines) {
     let finalLine = line;
     if (line.includes('\r')) {
       const segments = line.split('\r');
       for (const segment of segments) {
-        if (segment.trim().length > 0) {
+        if (stripAnsi(segment).trim().length > 0) {
           finalLine = segment;
         }
       }
     }
     
-    const trimmed = finalLine.trim();
-    if (trimmed === "RUNS  ..." || trimmed === "RUNS" || trimmed === "\\" || trimmed === "/" || trimmed === "|" || trimmed === "-") {
+    const plainTrimmed = stripAnsi(finalLine).trim();
+    if (plainTrimmed === "RUNS  ..." || plainTrimmed === "RUNS" || plainTrimmed === "\\" || plainTrimmed === "/" || plainTrimmed === "|" || plainTrimmed === "-") {
       continue;
     }
     processedLines.push(finalLine);
@@ -36,18 +36,24 @@ function stripAnsi(str) {
 
   // Deduplicate empty lines
   return processedLines.filter((line, index, arr) => {
-    if (line.trim() === "" && index > 0 && arr[index - 1].trim() === "") {
+    if (stripAnsi(line).trim() === "" && index > 0 && stripAnsi(arr[index - 1]).trim() === "") {
       return false;
     }
     return true;
-  }).join('\n');
+  });
+}
+
+function cleanLogLine(line) {
+  // Remove the `[HH:MM:SS]` time prefix and `[STAGE]` tags from the start of the line for UI cleanliness
+  let cleanLine = line.replace(/^(?:\u001b\[[0-9;]*m)?\[\d{2}:\d{2}:\d{2}\](?:\u001b\[[0-9;]*m)?\s*/, '');
+  cleanLine = cleanLine.replace(/^(?:\u001b\[[0-9;]*m)?\[[A-Z0-9_-]+\](?:\u001b\[[0-9;]*m)?\s*/i, '');
+  return cleanLine;
 }
 
 function parseLogsIntoSteps(rawLogs, buildStatus) {
   if (!rawLogs) return [];
 
-  const cleanLogs = stripAnsi(rawLogs);
-  const lines = cleanLogs.split('\n');
+  const rawLines = processRawLines(rawLogs);
 
   // 1. Initialize permanent system steps
   const systemSteps = {
@@ -64,19 +70,20 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
 
   let lastActiveStage = null;
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+  for (const line of rawLines) {
+    const plainLine = stripAnsi(line).trim();
+    if (!plainLine) continue;
 
     // Detect stage logs based on bracket prefix, e.g. "[SETUP] added packages" or "[TEST] PASS"
     const stagePrefixRegex = /^(?:\[\d{2}:\d{2}:\d{2}\]\s+)?\[([A-Z0-9_-]+)\]\s+(.*)$/;
-    const match = trimmed.match(stagePrefixRegex);
+    const match = plainLine.match(stagePrefixRegex);
+    let currentLineStage = null;
 
     if (match) {
       const stageName = match[1].toLowerCase();
-
       // Exclude system names
       if (stageName !== 'worker' && stageName !== 'engine' && stageName !== 'revert') {
+        currentLineStage = stageName;
         if (!dynamicStages[stageName]) {
           dynamicStages[stageName] = {
             id: `stage_${stageName}`,
@@ -87,19 +94,19 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
             endTime: null
           };
         }
-        dynamicStages[stageName].lines.push(line);
+        dynamicStages[stageName].lines.push(cleanLogLine(line));
         lastActiveStage = stageName;
         continue;
       }
     }
 
     // Engine/Worker log lines
-    if (trimmed.includes('Build status forced to RUNNING') || trimmed.includes('Created workspace path') || trimmed.includes('Repository cloned successfully') || trimmed.includes('Target commit successfully isolated')) {
-      systemSteps.setup_workspace.lines.push(line);
-    } else if (trimmed.includes('Detecting project language') || trimmed.includes('Detected context:') || trimmed.includes('dependency caching') || trimmed.includes('caching strategy') || trimmed.includes('Cache hit') || trimmed.includes('Cache miss')) {
-      systemSteps.env_detect.lines.push(line);
-    } else if (trimmed.includes('Preparing stage') || trimmed.includes('Launching stage') || (trimmed.includes('Stage') && trimmed.includes('execution exited')) || trimmed.includes('runtime session active')) {
-      const stageMatch = trimmed.match(/stage\s+([A-Z0-9_-]+)/i);
+    if (plainLine.includes('Build status forced to RUNNING') || plainLine.includes('Created workspace path') || plainLine.includes('Repository cloned successfully') || plainLine.includes('Target commit successfully isolated')) {
+      systemSteps.setup_workspace.lines.push(cleanLogLine(line));
+    } else if (plainLine.includes('Detecting project language') || plainLine.includes('Detected context:') || plainLine.includes('dependency caching') || plainLine.includes('caching strategy') || plainLine.includes('Cache hit') || plainLine.includes('Cache miss')) {
+      systemSteps.env_detect.lines.push(cleanLogLine(line));
+    } else if (plainLine.includes('Preparing stage') || plainLine.includes('Launching stage') || (plainLine.includes('Stage') && plainLine.includes('execution exited')) || plainLine.includes('runtime session active') || plainLine.includes('Spawning sandbox container for stage')) {
+      const stageMatch = plainLine.match(/stage[:'\s]+([A-Z0-9_-]+)/i);
       if (stageMatch) {
         const stageName = stageMatch[1].toLowerCase();
         if (!dynamicStages[stageName]) {
@@ -112,21 +119,21 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
             endTime: null
           };
         }
-        dynamicStages[stageName].lines.push(line);
+        dynamicStages[stageName].lines.push(cleanLogLine(line));
       } else if (lastActiveStage && dynamicStages[lastActiveStage]) {
-        dynamicStages[lastActiveStage].lines.push(line);
+        dynamicStages[lastActiveStage].lines.push(cleanLogLine(line));
       } else {
-        systemSteps.env_detect.lines.push(line);
+        systemSteps.env_detect.lines.push(cleanLogLine(line));
       }
-    } else if ((trimmed.includes('Captured') && trimmed.includes('build artifact')) || trimmed.includes('[ARTIFACTS]') || trimmed.includes('Gathering build artifacts')) {
-      systemEndSteps.artifacts.lines.push(line);
-    } else if (trimmed.includes('Pruning operational file tree') || trimmed.includes('fully executed and finished context') || trimmed.includes('Pruned operational') || trimmed.includes('Teardown') || trimmed.includes('finished context routines')) {
-      systemEndSteps.cleanup.lines.push(line);
+    } else if ((plainLine.includes('Captured') && plainLine.includes('build artifact')) || plainLine.includes('[ARTIFACTS]') || plainLine.includes('Gathering build artifacts')) {
+      systemEndSteps.artifacts.lines.push(cleanLogLine(line));
+    } else if (plainLine.includes('Pruning operational file tree') || plainLine.includes('fully executed and finished context') || plainLine.includes('Pruned operational') || plainLine.includes('Teardown') || plainLine.includes('finished context routines') || plainLine.includes('DAG pipeline session finished')) {
+      systemEndSteps.cleanup.lines.push(cleanLogLine(line));
     } else {
       if (lastActiveStage && dynamicStages[lastActiveStage]) {
-        dynamicStages[lastActiveStage].lines.push(line);
+        dynamicStages[lastActiveStage].lines.push(cleanLogLine(line));
       } else {
-        systemSteps.env_detect.lines.push(line);
+        systemSteps.env_detect.lines.push(cleanLogLine(line));
       }
     }
   }
@@ -143,7 +150,8 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
   const timeRegex = /\[(\d{2}:\d{2}:\d{2})\]/;
   const getFirstTimestamp = (stepLines) => {
     for (const l of stepLines) {
-      const match = l.match(timeRegex);
+      const plain = stripAnsi(l);
+      const match = plain.match(timeRegex) || rawLines.find(rl => stripAnsi(rl).includes(plain))?.match(timeRegex);
       if (match) return match[1];
     }
     return null;
@@ -151,7 +159,8 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
 
   const getLastTimestamp = (stepLines) => {
     for (let i = stepLines.length - 1; i >= 0; i--) {
-      const match = stepLines[i].match(timeRegex);
+      const plain = stripAnsi(stepLines[i]);
+      const match = plain.match(timeRegex) || rawLines.find(rl => stripAnsi(rl).includes(plain))?.match(timeRegex);
       if (match) return match[1];
     }
     return null;
@@ -198,13 +207,14 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
     }
   }
 
-  const isFinishedLogStream = cleanLogs.includes('DAG pipeline session finished') || cleanLogs.includes('finished context routines');
+  const plainLogs = stripAnsi(rawLogs);
+  const isFinishedLogStream = plainLogs.includes('DAG pipeline session finished') || plainLogs.includes('finished context routines');
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
 
     const hasError = step.lines.some(l => {
-      const lower = l.toLowerCase();
+      const lower = stripAnsi(l).toLowerCase();
       if (lower.includes('npm warn') || lower.includes('npm warning')) {
         return false;
       }
@@ -215,18 +225,19 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
              cleanLine.includes('breakdown');
     });
 
-    const isStageCompletedInLogs = step.lines.some(l => 
-      l.includes('completed successfully') || 
-      l.includes('executed cleanly') || 
-      l.includes('exited cleanly')
-    ) || isFinishedLogStream;
+    const isStageCompletedInLogs = step.lines.some(l => {
+      const plain = stripAnsi(l);
+      return plain.includes('completed successfully') || 
+             plain.includes('executed cleanly') || 
+             plain.includes('exited cleanly');
+    }) || (isFinishedLogStream && i !== steps.length - 1);
 
     if (hasError) {
       step.status = 'failed';
     } else if (step.lines.length > 0) {
       const isLastActiveStep = i === steps.findLastIndex(s => s.lines.length > 0);
 
-      if (isStageCompletedInLogs) {
+      if (isStageCompletedInLogs || isFinishedLogStream) {
         step.status = 'success';
       } else if (isLastActiveStep && buildStatus === 'RUNNING') {
         step.status = 'running';

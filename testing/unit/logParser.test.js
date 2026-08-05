@@ -22,7 +22,7 @@ describe('Production-Grade Unit Tests: Log Stream Processor (utils/logParser.js)
     const setupStep = steps.find(s => s.id === 'stage_setup');
     expect(setupStep).toBeDefined();
     expect(setupStep.lines[0]).not.toContain('\u001b[32m');
-    expect(setupStep.lines[0]).toContain('[SETUP] Packages installed successfully');
+    expect(setupStep.lines[0]).toContain('Packages installed successfully');
   });
 
   test('should categorize logs into permanent system steps (setup_workspace, env_detect, cleanup)', () => {
@@ -129,7 +129,7 @@ RUNS  ...
 
     const testStep = steps.find(s => s.id === 'stage_test');
     expect(testStep).toBeDefined();
-    expect(testStep.lines).toContain('[00:01:00] [TEST] Executing test suite...');
+    expect(testStep.lines).toContain('Executing test suite...');
     expect(testStep.lines).not.toContain('RUNS  ...');
   });
 
