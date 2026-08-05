@@ -92,7 +92,7 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       const cssUrl = cssMatch[1];
       const cssRes = await axios.get(`${TARGET_URL}${cssUrl}`, reqConfig);
 
-      expect(assetRes => assetRes.status).toBeDefined();
+      expect(cssRes.status).toBeDefined();
       expect(cssRes.status).toBe(200);
       expect(cssRes.headers['content-type']).toMatch(/css|text\/plain/);
       expect(cssRes.data.length).toBeGreaterThan(100);

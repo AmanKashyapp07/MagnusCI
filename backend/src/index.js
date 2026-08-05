@@ -37,6 +37,26 @@ app.use('/api/builds', buildRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/auth', authRoutes);
 
+// Static frontend SPA serving
+const frontendDistPath = path.join(__dirname, '../../frontend/dist');
+const fallbackDistPath = path.join(__dirname, '../public/dist');
+const distPath = require('fs').existsSync(frontendDistPath) ? frontendDistPath : fallbackDistPath;
+
+app.use(express.static(distPath));
+
+// SPA Client-side routing fallback
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/socket.io') || req.path.startsWith('/artifacts')) {
+    return next();
+  }
+  const indexPath = path.join(distPath, 'index.html');
+  if (require('fs').existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    next();
+  }
+});
+
 // Global Centralized Error Handler
 app.use(errorHandler);
 

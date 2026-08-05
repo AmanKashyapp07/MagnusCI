@@ -1,1 +1,121 @@
 @import "tailwindcss";
+
+@theme {
+  --font-serif: "Instrument Serif", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+@layer base {
+  :root {
+    --bg-primary: #FBF9F5;
+    --bg-secondary: #F3EFE6;
+    --bg-hover: #E9E3D8;
+    --text-primary: #191918;
+    --text-secondary: #6E685F;
+    --border-subtle: #E5DFC5;
+    --btn-bg: #191918;
+    --btn-text: #FAF7F2;
+    --accent: #D25E29; /* subtle warm accent */
+    --status-success: #2D6A4F;
+    --status-running: #B57614;
+    --status-failed: #9D0006;
+  }
+
+  .dark {
+    --bg-primary: #141312;
+    --bg-secondary: #22201E;
+    --bg-hover: #2E2B29;
+    --text-primary: #FAF7F2;
+    --text-secondary: #9B9387;
+    --border-subtle: rgba(255, 245, 230, 0.08);
+    --btn-bg: #FAF7F2;
+    --btn-text: #141312;
+    --accent: #E58755;
+    --status-success: #52B788;
+    --status-running: #FABD2F;
+    --status-failed: #FB4934;
+  }
+
+  body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-serif);
+    font-weight: 400;
+  }
+}
+
+@layer components {
+  .anthropic-card {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .anthropic-card:hover {
+    background-color: var(--bg-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  }
+
+  .anthropic-btn {
+    background-color: var(--btn-bg);
+    color: var(--btn-text);
+    border-radius: 9999px;
+    padding: 0.5rem 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+  }
+  
+  .anthropic-btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+  }
+
+  .anthropic-btn-arrow {
+    transition: transform 0.2s ease;
+  }
+  
+  .anthropic-btn:hover .anthropic-btn-arrow {
+    transform: translateX(4px);
+  }
+
+  .divider {
+    border-top: 1px solid var(--border-subtle);
+    margin: 1.5rem 0;
+  }
+
+  .status-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .status-badge.success {
+    background-color: color-mix(in srgb, var(--status-success) 15%, transparent);
+    color: var(--status-success);
+  }
+  
+  .status-badge.running {
+    background-color: color-mix(in srgb, var(--status-running) 15%, transparent);
+    color: var(--status-running);
+  }
+  
+  .status-badge.failed {
+    background-color: color-mix(in srgb, var(--status-failed) 15%, transparent);
+    color: var(--status-failed);
+  }
+}

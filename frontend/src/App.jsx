@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 // Hooks
 import { useAuth } from "./hooks/useAuth";
@@ -56,6 +56,21 @@ function App() {
   } = useBuildLogs(token, fetchWithAuth, fetchBuilds, builds);
 
   const [selectedRepo, setSelectedRepo] = useState(null);
+  
+  // Theme Toggle State
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    return localStorage.getItem("magnus-theme") === "dark";
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("magnus-theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("magnus-theme", "light");
+    }
+  }, [isDarkMode]);
 
   const handleDeleteRepoPrompt = (repo) => {
     setToast({
@@ -96,13 +111,13 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#050505] text-zinc-200 font-sans selection:bg-cyan-500/30 relative overflow-hidden flex flex-col">
-      {/* Ambient Background Glows */}
-      <div className="fixed top-[-25%] right-[-10%] w-[60%] h-[60%] bg-cyan-600/10 blur-[180px] rounded-full pointer-events-none" />
-      <div className="fixed bottom-[-20%] left-[-10%] w-[50%] h-[50%] bg-emerald-600/10 blur-[150px] rounded-full pointer-events-none" />
+    <div className={`min-h-screen relative overflow-hidden flex flex-col ${isDarkMode ? 'dark' : ''}`}>
+      {/* Ambient Background Glows - Subtler in Anthropic style */}
+      <div className="fixed top-[-25%] right-[-10%] w-[60%] h-[60%] bg-[var(--bg-secondary)] blur-[180px] rounded-full pointer-events-none opacity-50" />
+      <div className="fixed bottom-[-20%] left-[-10%] w-[50%] h-[50%] bg-[var(--border-subtle)] blur-[150px] rounded-full pointer-events-none opacity-30" />
 
       {/* Navigation Bar */}
-      <Header user={user} dbStatus={dbStatus} handleLogout={handleLogout} />
+      <Header user={user} dbStatus={dbStatus} handleLogout={handleLogout} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} />
 
       {/* Main Workspace Dashboard */}
       <main className="max-w-7xl mx-auto w-full px-6 py-8 min-h-[calc(100vh-4rem)] flex flex-col relative z-10">
@@ -175,8 +190,8 @@ function App() {
         __html: `
           .custom-scrollbar::-webkit-scrollbar { width: 4px; }
           .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-          .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
-          .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+          .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 10px; }
+          .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
           @keyframes fadeIn {
             from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }

@@ -3,11 +3,7 @@ kind: Ingress
 metadata:
   name: magnus-ci-ingress
   annotations:
-    kubernetes.io/ingress.class: "nginx"
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/websocket-services: "magnus-api"
 spec:
   tls:
     - hosts:
@@ -17,24 +13,10 @@ spec:
     - host: magnus-ci.online
       http:
         paths:
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: magnus-api
-                port:
-                  number: 5001
-          - path: /socket.io
-            pathType: Prefix
-            backend:
-              service:
-                name: magnus-api
-                port:
-                  number: 5001
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: magnus-frontend
+                name: magnus-api
                 port:
-                  number: 80
+                  number: 5001
