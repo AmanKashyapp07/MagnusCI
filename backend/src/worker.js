@@ -1,153 +1,177 @@
 /**
- * MagnusCI Background Worker & Pipeline Orchestration Daemon
+ * MagnusCI Worker Process Entrypoint
  * 
- * Manages BullMQ job queues, repository cloning, DAG stage scheduling,
- * Docker container sandboxing, stream logging, and auto-revert routines.
+ * Scalable BullMQ Queue Consumer for isolated containerized CI/CD builds.
  */
 
-require('dotenv').config();
 const { Worker } = require('bullmq');
+const Redis = require('ioredis');
 const Docker = require('dockerode');
 const simpleGit = require('simple-git');
 const path = require('path');
 const fs = require('fs').promises;
 const pool = require('./db');
-const { createWorkspace, cleanWorkspace } = require('./workspace');
+const config = require('./config/env');
+const { parseDAG, executeDAG } = require('./utils/dag');
+const { saveCache, downloadCache } = require('./utils/cache');
 const { updateGitHubStatus } = require('./utils/githubStatus');
-const { restoreCache, saveCache } = require('./utils/cache');
-const { loadPipelineStages, hasCycle, executeDAG } = require('./utils/dag');
-const { executeStageContainer } = require('./pipeline/stageRunner');
-const { handleRevertCommit } = require('./pipeline/autoRevertService');
-const { harvestArtifacts } = require('./pipeline/artifactService');
 const {
   styles,
   logWorker,
   logEngine,
   logSuccess,
   logError,
-  pullImage,
   saveLogs,
-  detectProjectContext
+  detectProjectContext,
+  handleRevertCommit,
+  harvestArtifacts
 } = require('./utils/workerHelpers');
 
+// Initialize Docker Client Instance
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
-const connection = {
-  host: process.env.REDIS_HOST || '127.0.0.1',
-  port: parseInt(process.env.REDIS_PORT || '6379')
+// Container Sandbox Execution
+const executeStageContainer = async ({ stageName, stageConfig, workspacePath, binds, onLog }) => {
+  const imageName = stageConfig.image || 'node:20-alpine';
+  const runCommand = stageConfig.run || 'echo "No command specified"';
+
+  try {
+    logWorker(`Pulling container image '${imageName}' for stage '${stageName}'...`);
+    onLog(logEngine(`Pulling container image '${styles.cyan}${imageName}${styles.reset}' for stage '${stageName}'...\n`));
+    
+    await new Promise((resolve, reject) => {
+      docker.pull(imageName, (err, stream) => {
+        if (err) return reject(err);
+        docker.modem.followProgress(stream, (onFinishedErr) => {
+          if (onFinishedErr) return reject(onFinishedErr);
+          resolve();
+        });
+      });
+    });
+
+    onLog(logEngine(`Spawning isolated sandbox container for stage '${styles.cyan}${stageName}${styles.reset}'...\n`));
+
+    const container = await docker.createContainer({
+      Image: imageName,
+      Cmd: ['/bin/sh', '-c', runCommand],
+      WorkingDir: '/workspace',
+      HostConfig: {
+        Binds: binds,
+        Memory: 2 * 1024 * 1024 * 1024, // 2GB memory limit
+        CpuQuota: 100000,
+        CpuPeriod: 100000 // 1 CPU Core limit
+      },
+      Tty: true
+    });
+
+    await container.start();
+
+    const logStream = await container.logs({
+      follow: true,
+      stdout: true,
+      stderr: true
+    });
+
+    logStream.on('data', (chunk) => {
+      onLog(`[${stageName.toUpperCase()}] ${chunk.toString('utf8')}`);
+    });
+
+    const waitResult = await container.wait();
+    const exitCode = waitResult.StatusCode;
+
+    try {
+      await container.remove({ force: true });
+    } catch (e) {
+      // Container cleanup fallback
+    }
+
+    return { success: exitCode === 0, exitCode, container: null };
+  } catch (err) {
+    logError(`Container execution failed for stage '${stageName}':`, err);
+    onLog(logEngine(`${styles.red}Container execution failed for stage '${stageName}': ${err.message}${styles.reset}\n`));
+    return { success: false, exitCode: 1, container: null };
+  }
 };
 
-/**
- * BullMQ Job Processor Routine
- */
-const worker = new Worker('build-queue', async job => {
-  const { buildId, repoUrl, commitHash, branchName = 'main' } = job.data;
-  
-  let owner = '';
-  let repoName = '';
-  try {
-    const parts = repoUrl.split('/');
-    repoName = parts.pop().replace('.git', '');
-    owner = parts.pop();
-  } catch (e) {
-    owner = '';
-    repoName = '';
-  }
-  
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const targetUrl = `${frontendUrl}/`;
+// Redis Connection Options
+const connection = {
+  host: config.REDIS_HOST,
+  port: config.REDIS_PORT
+};
 
-  console.log(`\n${styles.bright}${styles.blue}┌────────────────────────────────────────────────────────┐${styles.reset}`);
-  logWorker(` Job Picked Up | ${styles.bright}Build ID: ${buildId}${styles.reset}`);
-  logWorker(` Repo: ${styles.dim}${repoUrl}${styles.reset} @ [${styles.yellow}${commitHash.slice(0, 7)}${styles.reset}]`);
-  console.log(`${styles.bright}${styles.blue}└────────────────────────────────────────────────────────┘${styles.reset}`);
+logWorker(`Initializing Worker Queue Consumer on Redis host: ${config.REDIS_HOST}:${config.REDIS_PORT}`);
 
-  let workspacePath = '';
-  let activeContainers = {};
+const worker = new Worker('build-queue', async (job) => {
+  const { buildId, repositoryId, githubUrl, commitHash, branchName, repoName, owner } = job.data;
+  logWorker(`Job Picked Up | Build ID: ${buildId}`);
+  logWorker(`Repo: ${githubUrl} @ [${commitHash?.slice(0, 7)}]`);
+
+  const targetUrl = `http://magnus-ci.online/dashboard`;
+  let workspacePath = null;
   let buildLogs = '';
+  let activeContainers = {};
   let statsInterval = null;
-  let cacheHash = null;
 
   try {
-    // 1. Transactionally update build status to RUNNING
+    // 1. Mark build status as RUNNING in PostgreSQL
     await pool.query(
       "UPDATE builds SET status = 'RUNNING', started_at = NOW() WHERE id = $1",
       [buildId]
     );
-    logWorker(`Build status forced to ${styles.yellow}RUNNING${styles.reset}.`);
+    logWorker(`Build status forced to RUNNING.`);
     
-    await updateGitHubStatus(owner, repoName, commitHash, 'pending', 'Pipeline execution in progress...', targetUrl);
-
-    // 2. Generate isolated workspace path
-    workspacePath = await createWorkspace(buildId);
-    buildLogs += logEngine(`Created workspace path: ${styles.dim}${workspacePath}${styles.reset}\n`);
+    buildLogs += logEngine(`Job #${buildId} started for repository ${repoName} (${branchName}).\n`);
     await saveLogs(buildId, buildLogs);
 
-    // 3. Git Clone & Commit SHA Checkout
-    buildLogs += logEngine(`Cloning repository... 📥\n`);
+    // 2. Set GitHub Commit Status to Pending
+    await updateGitHubStatus(owner, repoName, commitHash, 'pending', 'Pipeline execution underway...', targetUrl);
+
+    // 3. Prepare workspace path
+    workspacePath = path.join('/tmp', `workspace-${buildId}-${Date.now()}`);
+    await fs.mkdir(workspacePath, { recursive: true });
+    logWorker(`Created workspace path: ${workspacePath}`);
+
+    // 4. Clone GitHub repository commit target
+    logWorker(`Cloning commit hash ${commitHash} from ${githubUrl}...`);
+    buildLogs += logEngine(`Cloning commit target ${styles.cyan}${commitHash?.slice(0, 7)}${styles.reset}...\n`);
     await saveLogs(buildId, buildLogs);
+
     const git = simpleGit();
-    await git.clone(repoUrl, workspacePath);
-    buildLogs += logEngine(`${styles.green}✔ Repository cloned successfully.${styles.reset}\n`);
+    await git.clone(githubUrl, workspacePath);
+    const gitRepo = simpleGit(workspacePath);
+    await gitRepo.checkout(commitHash);
+
+    logWorker(`Target commit successfully isolated.`);
+    buildLogs += logEngine(`Repository workspace setup complete.\n`);
     await saveLogs(buildId, buildLogs);
 
-    buildLogs += logEngine(`Checking out commit: ${styles.yellow}${commitHash}${styles.reset}\n`);
-    await saveLogs(buildId, buildLogs);
-    const repoGit = simpleGit(workspacePath);
-    await repoGit.checkout(commitHash);
-    buildLogs += logEngine(`${styles.green}✔ Target commit successfully isolated.${styles.reset}\n`);
-    await saveLogs(buildId, buildLogs);
+    // 5. Detect Context & Cache Strategy
+    const { language, imageName: defaultImage, runCommand: defaultCmd } = await detectProjectContext(workspacePath);
+    logWorker(`Detected context: Language=${language}, Image=${defaultImage}`);
+    buildLogs += logEngine(`Detected context: Language=${styles.cyan}${language}${styles.reset}, Base Image=${styles.cyan}${defaultImage}${styles.reset}\n`);
 
-    // 4. Project context & build environment resolution
-    buildLogs += logEngine(`Detecting project language and build environment...\n`);
-    await saveLogs(buildId, buildLogs);
-    
-    const { language, imageName } = await detectProjectContext(workspacePath);
-    
-    buildLogs += logEngine(`Detected context: ${styles.green}${language}${styles.reset} environment. Base container: ${styles.yellow}${imageName}${styles.reset}\n`);
-    await saveLogs(buildId, buildLogs);
-
-    const repoRes = await pool.query("SELECT repository_id FROM builds WHERE id = $1", [buildId]);
-    const repositoryId = repoRes.rows[0]?.repository_id || 1;
-
-    // 5. Dependency Caching Resolution
-    logWorker(`Resolving dependency caching strategy...`);
-    buildLogs += logEngine(`Resolving dependency caching strategy...\n`);
-    await saveLogs(buildId, buildLogs);
-    const cacheResult = await restoreCache(workspacePath, language, repositoryId);
-    cacheHash = cacheResult.hash;
-    logWorker(`Cache result: ${cacheResult.message}`);
-    buildLogs += logEngine(`${cacheResult.success ? styles.green : styles.yellow}ℹ ${cacheResult.message}${styles.reset}\n`);
-    await saveLogs(buildId, buildLogs);
-
-    // 6. Host Mounts & Volume Mapping
-    const binds = [
-      `${workspacePath}:/app`,
-      '/var/run/docker.sock:/var/run/docker.sock'
-    ];
-
-    if (language === 'Python') {
-      const localPipCache = path.join(workspacePath, '.pip_cache');
-      await fs.mkdir(localPipCache, { recursive: true });
-      binds.push(`${localPipCache}:/root/.cache/pip`);
-    } else if (language === 'Node.js') {
-      const localNpmCache = path.join(workspacePath, '.npm_cache');
-      await fs.mkdir(localNpmCache, { recursive: true });
-      binds.push(`${localNpmCache}:/root/.npm`);
-    } else if (language === 'Go') {
-      const localGoCache = path.join(workspacePath, '.go_cache');
-      await fs.mkdir(localGoCache, { recursive: true });
-      binds.push(`${localGoCache}:/go/pkg/mod`);
+    // 6. Restore Dependency Cache if lockfile present
+    let cacheHash = null;
+    try {
+      logWorker(`Resolving dependency caching strategy...`);
+      const cacheRes = await downloadCache(workspacePath, language, repositoryId);
+      cacheHash = cacheRes.cacheHash;
+      logWorker(`Cache result: ${cacheRes.message}`);
+      buildLogs += logEngine(`Dependency cache: ${cacheRes.message}\n`);
+      await saveLogs(buildId, buildLogs);
+    } catch (cacheErr) {
+      logError(`Cache restoration encountered non-fatal issue:`, cacheErr);
     }
 
-    // 7. Load & Validate Pipeline DAG
-    const pipelineStages = await loadPipelineStages(workspacePath, language, imageName);
-    
-    if (hasCycle(pipelineStages)) {
-      throw new Error("Cyclic dependency detected in pipeline configuration (magnus-ci.json). Aborting.");
-    }
+    // 7. Parse Pipeline Stages & DAG Configuration
+    const pipelineStages = parseDAG(workspacePath, language, defaultImage, defaultCmd);
+    const stageNames = Object.keys(pipelineStages);
+    logWorker(`Pipeline stages loaded: ${stageNames.join(' -> ')}`);
+    buildLogs += logEngine(`Topological DAG stages parsed: ${styles.bright}${stageNames.join(' -> ')}${styles.reset}\n`);
 
-    // 8. Container Telemetry Poller (2000ms Interval)
+    const binds = [`${workspacePath}:/workspace`];
+
+    // 8. Telemetry Poller (2000ms Interval)
     statsInterval = setInterval(async () => {
       for (const [sName, cInst] of Object.entries(activeContainers)) {
         if (!cInst) continue;
@@ -163,7 +187,7 @@ const worker = new Worker('build-queue', async job => {
 
           logWorker(`[TELEMETRY] Stage '${sName}' -> CPU: ${cpuPercent.toFixed(1)}% | RAM: ${memoryMB.toFixed(1)}MB (${memoryPercent.toFixed(1)}%)`);
         } catch (e) {
-          // Silent catch for exited containers
+          // Silent catch
         }
       }
     }, 2000);
@@ -219,9 +243,9 @@ const worker = new Worker('build-queue', async job => {
     await saveLogs(buildId, buildLogs);
 
     if (overallSuccess) {
-      // Success Routines
+      // Success Routines - Safely update both completed_at and finished_at
       await pool.query(
-        "UPDATE builds SET status = 'SUCCESS', completed_at = NOW() WHERE id = $1",
+        "UPDATE builds SET status = 'SUCCESS', finished_at = NOW(), completed_at = NOW() WHERE id = $1",
         [buildId]
       );
       logSuccess(`Build ID: ${buildId} completed with status SUCCESS.`);
@@ -230,11 +254,15 @@ const worker = new Worker('build-queue', async job => {
 
       // Save dependency cache
       if (cacheHash) {
-        logWorker(`Saving dependency cache...`);
-        const saveRes = await saveCache(workspacePath, language, repositoryId, cacheHash);
-        logWorker(`Cache save result: ${saveRes.message}`);
-        buildLogs += logEngine(`Cache save result: ${saveRes.message}\n`);
-        await saveLogs(buildId, buildLogs);
+        try {
+          logWorker(`Saving dependency cache...`);
+          const saveRes = await saveCache(workspacePath, language, repositoryId, cacheHash);
+          logWorker(`Cache save result: ${saveRes.message}`);
+          buildLogs += logEngine(`Cache save result: ${saveRes.message}\n`);
+          await saveLogs(buildId, buildLogs);
+        } catch (cacheSaveErr) {
+          logError(`Cache save failed non-fatally:`, cacheSaveErr);
+        }
       }
     } else {
       // Failure Routines
@@ -247,17 +275,29 @@ const worker = new Worker('build-queue', async job => {
     logError(`Build pipeline broken down at ID: ${buildId}`, err);
     buildLogs += logEngine(`${styles.red}Build pipeline broken down: ${err.message}${styles.reset}\n`);
 
-    await pool.query(
-      "UPDATE builds SET status = 'FAILED', completed_at = NOW() WHERE id = $1",
-      [buildId]
-    );
+    try {
+      await pool.query(
+        "UPDATE builds SET status = 'FAILED', finished_at = NOW(), completed_at = NOW() WHERE id = $1",
+        [buildId]
+      );
+    } catch (dbErr) {
+      logError(`Failed to update build status in DB:`, dbErr);
+    }
 
-    await updateGitHubStatus(owner, repoName, commitHash, 'failure', `Pipeline failed: ${err.message.slice(0, 50)}`, targetUrl);
+    try {
+      await updateGitHubStatus(owner, repoName, commitHash, 'failure', `Pipeline failed: ${err.message.slice(0, 50)}`, targetUrl);
+    } catch (ghErr) {
+      logError(`Failed to update GitHub status:`, ghErr);
+    }
 
     // Trigger Auto-Revert on main branch failures
     if (branchName === 'main' || branchName === 'master') {
-      const revertLog = await handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs);
-      buildLogs += revertLog;
+      try {
+        const revertLog = await handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs);
+        buildLogs += revertLog;
+      } catch (revertErr) {
+        logError(`Auto-revert failed:`, revertErr);
+      }
     }
 
     await saveLogs(buildId, buildLogs);
@@ -281,24 +321,23 @@ const worker = new Worker('build-queue', async job => {
         logError(`Artifact harvesting encountered error:`, artifactErr);
       }
 
-      logWorker(`Pruning operational file tree workspace...`);
-      await cleanWorkspace(buildId);
+      try {
+        logWorker(`Pruning operational file tree workspace...`);
+        await fs.rm(workspacePath, { recursive: true, force: true });
+      } catch (cleanErr) {
+        // Workspace cleanup fallback
+      }
       logSuccess(`Job #${buildId} has fully executed and finished context routines.\n`);
     }
   }
 }, { connection });
 
-// Startup Banner Log
-console.log(`
-${styles.cyan}${styles.bright}========================================================================
-█▀▄▀█  ▄▀█  █▀▀  █▄░█  █░█  █▀    █▀▀  █
-█░▀░█  █▀█  █▄█  █░▀█  █▄█  ▄█    █▄▄  █
-========================================================================
- Engine Daemon Online
- 📡  Awaiting Webhooks on: build-queue
- 🛡️   Auto-Revert System: Enabled
- 📦  Docker API Connected: true
-========================================================================${styles.reset}
-`);
+worker.on('completed', (job) => {
+  logSuccess(`BullMQ Queue Worker completed Job #${job.id}`);
+});
+
+worker.on('failed', (job, err) => {
+  logError(`BullMQ Queue Worker failed Job #${job?.id}:`, err);
+});
 
 module.exports = worker;

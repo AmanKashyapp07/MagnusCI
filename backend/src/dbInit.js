@@ -29,9 +29,13 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         started_at TIMESTAMP,
         finished_at TIMESTAMP,
+        completed_at TIMESTAMP,
         artifacts JSONB DEFAULT '[]'::jsonb,
         metrics JSONB DEFAULT '[]'::jsonb
     );
+    ALTER TABLE builds ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
+    ALTER TABLE builds ADD COLUMN IF NOT EXISTS finished_at TIMESTAMP;
+    ALTER TABLE builds ADD COLUMN IF NOT EXISTS started_at TIMESTAMP;
 
     CREATE TABLE IF NOT EXISTS build_logs (
         id SERIAL PRIMARY KEY,
