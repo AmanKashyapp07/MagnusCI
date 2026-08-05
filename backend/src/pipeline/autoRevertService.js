@@ -93,7 +93,6 @@ async function handleRevertCommit(workspacePath, repoUrl, commitHash, branchName
     
     await repoGit.addConfig('user.name', 'Magnus CI');
     await repoGit.addConfig('user.email', 'ci@magnus.internal');
-    await repoGit.addConfig('core.askPass', '');
     logOutput += `[REVERT] Configured git identity to Magnus CI.\n`;
 
     let cleanUrl = repoUrl;

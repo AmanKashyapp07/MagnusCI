@@ -143,7 +143,8 @@ const worker = new Worker('build-queue', async (job) => {
     }
 
     // 3. Prepare workspace path
-    workspacePath = path.join('/tmp', `workspace-${buildId}-${Date.now()}`);
+    const baseWorkspace = process.env.HOST_WORKSPACE_PATH || '/tmp';
+    workspacePath = path.join(baseWorkspace, `workspace-${buildId}-${Date.now()}`);
     await fs.mkdir(workspacePath, { recursive: true });
     logWorker(`Created workspace path: ${workspacePath}`);
 
