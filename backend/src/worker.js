@@ -102,7 +102,21 @@ const connection = {
 logWorker(`Initializing Worker Queue Consumer on Redis host: ${config.REDIS_HOST}:${config.REDIS_PORT}`);
 
 const worker = new Worker('build-queue', async (job) => {
-  const { buildId, repositoryId, githubUrl, commitHash, branchName, repoName, owner } = job.data;
+  const buildId = job.data.buildId;
+  const githubUrl = job.data.githubUrl || job.data.repoUrl;
+  const commitHash = job.data.commitHash;
+  const branchName = job.data.branchName || 'main';
+  const repositoryId = job.data.repositoryId || job.data.repoId;
+  
+  let repoName = job.data.repoName;
+  let owner = job.data.owner;
+
+  if (!repoName && githubUrl) {
+    const parts = githubUrl.replace(/\.git$/, '').split('/');
+    repoName = parts[parts.length - 1] || 'repository';
+    owner = parts[parts.length - 2] || 'user';
+  }
+
   logWorker(`Job Picked Up | Build ID: ${buildId}`);
   logWorker(`Repo: ${githubUrl} @ [${commitHash?.slice(0, 7)}]`);
 
@@ -124,7 +138,9 @@ const worker = new Worker('build-queue', async (job) => {
     await saveLogs(buildId, buildLogs);
 
     // 2. Set GitHub Commit Status to Pending
-    await updateGitHubStatus(owner, repoName, commitHash, 'pending', 'Pipeline execution underway...', targetUrl);
+    if (owner && repoName && commitHash) {
+      await updateGitHubStatus(owner, repoName, commitHash, 'pending', 'Pipeline execution underway...', targetUrl);
+    }
 
     // 3. Prepare workspace path
     workspacePath = path.join('/tmp', `workspace-${buildId}-${Date.now()}`);
@@ -135,6 +151,10 @@ const worker = new Worker('build-queue', async (job) => {
     logWorker(`Cloning commit hash ${commitHash} from ${githubUrl}...`);
     buildLogs += logEngine(`Cloning commit target ${styles.cyan}${commitHash?.slice(0, 7)}${styles.reset}...\n`);
     await saveLogs(buildId, buildLogs);
+
+    if (!githubUrl) {
+      throw new Error("Target repository URL (githubUrl/repoUrl) is undefined in queue job payload.");
+    }
 
     const git = simpleGit();
     await git.clone(githubUrl, workspacePath);
@@ -250,7 +270,9 @@ const worker = new Worker('build-queue', async (job) => {
       );
       logSuccess(`Build ID: ${buildId} completed with status SUCCESS.`);
 
-      await updateGitHubStatus(owner, repoName, commitHash, 'success', 'All pipeline stages passed cleanly.', targetUrl);
+      if (owner && repoName && commitHash) {
+        await updateGitHubStatus(owner, repoName, commitHash, 'success', 'All pipeline stages passed cleanly.', targetUrl);
+      }
 
       // Save dependency cache
       if (cacheHash) {
@@ -284,16 +306,18 @@ const worker = new Worker('build-queue', async (job) => {
       logError(`Failed to update build status in DB:`, dbErr);
     }
 
-    try {
-      await updateGitHubStatus(owner, repoName, commitHash, 'failure', `Pipeline failed: ${err.message.slice(0, 50)}`, targetUrl);
-    } catch (ghErr) {
-      logError(`Failed to update GitHub status:`, ghErr);
+    if (owner && repoName && commitHash) {
+      try {
+        await updateGitHubStatus(owner, repoName, commitHash, 'failure', `Pipeline failed: ${err.message.slice(0, 50)}`, targetUrl);
+      } catch (ghErr) {
+        logError(`Failed to update GitHub status:`, ghErr);
+      }
     }
 
     // Trigger Auto-Revert on main branch failures
     if (branchName === 'main' || branchName === 'master') {
       try {
-        const revertLog = await handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs);
+        const revertLog = await handleRevertCommit(workspacePath, githubUrl, commitHash, branchName, buildId, buildLogs);
         buildLogs += revertLog;
       } catch (revertErr) {
         logError(`Auto-revert failed:`, revertErr);

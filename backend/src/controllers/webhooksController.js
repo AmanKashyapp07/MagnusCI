@@ -32,6 +32,7 @@ class WebhooksController {
       }
 
       const repoName = repository.name;
+      const owner = repository.owner?.login || repository.owner?.name || 'user';
       const normalizedUrl = repoService.normalizeUrl(repository.clone_url);
 
       let repoId;
@@ -55,9 +56,14 @@ class WebhooksController {
 
       await buildQueue.add('run-build', {
         buildId,
+        repoId,
+        repositoryId: repoId,
         repoUrl: normalizedUrl,
+        githubUrl: normalizedUrl,
         commitHash,
-        branchName
+        branchName,
+        repoName,
+        owner
       });
 
       res.status(202).json({
