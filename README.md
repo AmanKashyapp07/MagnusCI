@@ -12,7 +12,7 @@
   <p align="center">
     An Ephemeral Container-Based CI/CD Orchestration Engine
     <br />
-    <a href="https://github.com/AmanKashyapp07/ci-cd-engine"><strong>Explore the docs »</strong></a>
+    <a href="https://github.com/AmanKashyapp07/ci-cd-engine"><strong>Explore the docs</strong></a>
     <br />
     <br />
     <a href="http://magnus-ci.online">View Live Demo</a>
@@ -44,13 +44,13 @@
       </ul>
     </li>
     <li><a href="#usage">Usage</a></li>
+    <li><a href="#testing--automated-quality-verification">Testing & Automated Quality Verification</a></li>
     <li><a href="#system-workflow">System Workflow</a></li>
-    <li><a href="#production-deployment-azure-vm">Production Deployment (Azure VM)</a></li>
+    <li><a href="#production-deployment-kubernetes--k3s">Production Deployment (Kubernetes / K3s)</a></li>
     <li><a href="#future-scaling-scope--kubernetes-roadmap">Future Scaling Scope & Kubernetes Roadmap</a></li>
     <li><a href="#challenges-faced--learning-outcomes">Challenges Faced & Learning Outcomes</a></li>
     <li><a href="#license">License</a></li>
     <li><a href="#contact">Contact</a></li>
-    <li><a href="#acknowledgments">Acknowledgments</a></li>
   </ol>
 </details>
 
@@ -59,32 +59,34 @@
 
 MagnusCI is a custom-built, lightweight CI/CD orchestration engine designed to demonstrate the underlying mechanics of modern automation platforms like GitHub Actions and Vercel. 
 
-Instead of relying on pre-existing CI tools, this project implements the core execution pipeline from scratch. The system intercepts code pushes via GitHub webhooks, manages execution pipelines using a custom Directed Acyclic Graph (DAG) scheduler, runs build stages within isolated ephemeral Docker containers, and streams real-time terminal output and resource telemetry to a web-based React monitoring dashboard.
+Instead of relying on pre-existing CI tools, this project implements the core execution pipeline from scratch. The system intercepts code pushes via GitHub webhooks, manages execution pipelines using a custom Directed Acyclic Graph (DAG) scheduler, runs build stages within isolated ephemeral Docker containers, and streams real-time terminal output and resource telemetry to a web-based React monitoring dashboard. The production system is containerized and deployed natively on Kubernetes (K3s) at http://magnus-ci.online.
 
 ### Built With
 
+* [![Kubernetes][Kubernetes.io]][Kubernetes-url]
+* [![Docker][Docker.com]][Docker-url]
 * [![React][React.js]][React-url]
 * [![TailwindCSS][Tailwind.css]][Tailwind-url]
 * [![Express][Express.js]][Express-url]
 * [![NodeJS][Node.js]][Node-url]
 * [![Postgres][Postgres.sql]][Postgres-url]
 * [![Redis][Redis.io]][Redis-url]
-* [![Docker][Docker.com]][Docker-url]
-
+* [![Playwright][Playwright.dev]][Playwright-url]
 
 
 <!-- KEY FEATURES -->
 ## Key Features
 
+* **Kubernetes (K3s) Cluster Orchestration:** Containerized multi-pod deployment running on Kubernetes (K3s) with scaled API gateways, background worker daemon, PostgreSQL, Redis event broker, and MinIO S3 storage.
 * **Cryptographic Webhook Validation:** Secures ingestion gateway endpoints by verifying incoming GitHub webhook payloads using SHA-256 HMAC signatures.
 * **Asynchronous Task Queue:** Decouples API ingestion from resource-heavy build execution runners using BullMQ and Redis to manage system backpressure.
-* **Programmatic Container Isolation:** Spawns ephemeral Docker containers directly through the Docker Engine socket (`/var/run/docker.sock`) to guarantee safe build environments.
+* **Host-Isolated Container Execution:** Spawns ephemeral Docker containers directly through the Docker Engine socket (`/var/run/docker.sock`) and shared host paths (`/tmp/magnus-builds`) to guarantee safe build environments.
 * **DAG Execution Engine:** Parses stage dependencies defined in a custom `magnus-ci.json` configuration and executes independent steps concurrently.
-* **SHA-256 Dependency Caching:** Hashes package lockfiles and caches compression directories in local tarball archives, decreasing successive build times.
+* **SHA-256 Dependency Caching:** Hashes package lockfiles and caches compression directories in local tarball archives and MinIO S3 object storage.
 * **Real-Time Logs & Telemetry:** Establishes duplex WebSocket connections via Socket.io to pipe container output streams and resource metrics to the UI.
 * **GitHub Commit Status Feedback:** Integrates with the GitHub Statuses API to update commit verification badges on the remote repository.
-* **Automated Revert Recovery:** Detects build failures on protected branches and automatically pushes a git revert commit to the remote repository.
-
+* **Automated Revert Recovery & Infinite Loop Guard:** Detects build failures on main branches to trigger reverts, while automatically suppressing recursion for commits authored by `Magnus CI`.
+* **Unified Master Test Orchestrator (`test.sh`):** Single-command test runner executing 6 comprehensive test suites covering Unit, Integration, Live Backend, Kubernetes Infrastructure, Playwright Browser E2E, and Local Repository Pipelines.
 
 
 <!-- GETTING STARTED -->
@@ -98,6 +100,7 @@ To get a local copy up and running, follow these simple steps.
 * **PostgreSQL** (running on port `5432`)
 * **Redis** (running locally on port `6379`)
 * **Docker** (running on host, with socket accessible at `/var/run/docker.sock`)
+* **Kubernetes (k3s / kubectl)** (optional for full K8s deployment)
 
 ### Installation
 
@@ -122,15 +125,17 @@ To get a local copy up and running, follow these simple steps.
    REDIS_PORT=6379
    GITHUB_TOKEN=your_personal_access_token
    ```
-4. Install npm packages for both sub-projects:
+4. Install npm packages for sub-projects and testing:
    ```bash
    # Install Backend dependencies
    cd backend && npm install
    
    # Install Frontend dependencies
    cd ../frontend && npm install
-   ```
 
+   # Install Testing dependencies
+   cd ../testing && npm install
+   ```
 
 
 <!-- USAGE EXAMPLES -->
@@ -138,7 +143,7 @@ To get a local copy up and running, follow these simple steps.
 
 ### Running Locally
 
-To run the application locally, start the following services in three separate terminal tabs:
+To run the application locally, start the following services:
 
 **Terminal 1: Start the Background Worker Daemon**
 ```bash
@@ -176,6 +181,32 @@ To configure builds, create a `magnus-ci.json` file in the root of your target r
 ```
 
 
+<!-- TESTING & AUTOMATED QUALITY VERIFICATION -->
+## Testing & Automated Quality Verification
+
+MagnusCI includes a production-grade master test runner `test.sh` that validates the full system end-to-end across 6 distinct test suites:
+
+```bash
+./test.sh
+```
+
+```text
+========================================================================
+               MASTER TEST EXECUTION SUMMARY                            
+========================================================================
+ All 6/6 Test Suites Passed Successfully!
+ Production Target: http://magnus-ci.online
+========================================================================
+```
+
+### Suite Breakdown:
+1. **Unit Test Suite (Jest - 42 tests):** DAG cycle detection algorithms, topological execution order, log stream parsing, dependency fingerprinting, MinIO S3 storage, and Socket.io Redis adapter.
+2. **Integration Test Suite (Jest + Supertest - 9 tests):** SHA-256 HMAC webhook signature verification, JWT Bearer token authentication, and OAuth entrypoint redirects.
+3. **Live E2E Backend Deployment Suite (10 tests):** Real-time HTTP/CORS header checks against `http://magnus-ci.online`, static JS/CSS asset delivery, unhandled route isolation, and webhook circuit breaker tests.
+4. **Kubernetes Infrastructure Test Suite (4 tests):** Directly tests the live K3s Kubernetes cluster, checking Node readiness, Pod phase (`Running 1/1`), container volume mounts (`docker-socket`, `temp-builds`), and service endpoints.
+5. **Playwright Browser E2E Suite (Chromium - 14 tests):** Fully automated browser testing verifying unauthenticated landing page components, mobile responsiveness (375x667), authenticated dashboard metrics, workspace lists, and build log modal terminals.
+6. **Local Repository Pipeline Suite:** Disk layout verification, `magnus-ci.json` DAG validation, and execution of local unit test runners in `/Users/amankashyap/Documents/tes`.
+
 
 <!-- SYSTEM WORKFLOW -->
 ## System Workflow
@@ -184,12 +215,12 @@ To configure builds, create a `magnus-ci.json` file in the root of your target r
 graph TD
     %% Nodes
     A["GitHub Push Event"]
-    B["Express Ingestion Gateway"]
-    C["Redis Queue (BullMQ)"]
-    D["Worker Daemon"]
+    B["Express Ingestion Gateway (K8s)"]
+    C["Redis Queue (BullMQ - K8s)"]
+    D["Worker Daemon (K8s Pod)"]
     E["Workspace Creator"]
-    F["Cache Manager"]
-    G["Docker Engine API"]
+    F["MinIO & Local Cache Manager"]
+    G["Docker Engine API Socket"]
     H["Socket.io WebSockets"]
     I["Cleanup System"]
 
@@ -216,107 +247,43 @@ graph TD
 ```
 
 
-
 <!-- PRODUCTION DEPLOYMENT -->
-## Production Deployment (Azure VM)
+## Production Deployment (Kubernetes / K3s)
 
-This project has been fully deployed on a production Azure Virtual Machine (Ubuntu 24.04) under the custom domain **[http://magnus-ci.online](http://magnus-ci.online)**.
+This project is fully deployed on a production Azure Virtual Machine running a Kubernetes (K3s) cluster under the domain http://magnus-ci.online. All Kubernetes manifests are version-controlled in the `k8s/` directory:
 
-### Architecture Topology:
-1. **Nginx Reverse Proxy (Port 80):** Serves the built React client statically and forwards `/api/*` and WebSocket `/socket.io/*` traffic to the backend running locally on Port 5001.
-2. **Process Management (PM2):** Keeps the API gateway (`magnus-api`) and background queue runner (`magnus-worker`) daemonized, running as system services with automated logging.
-3. **Database Layer:** PostgreSQL is running locally with loopback configurations to support secure TCP socket communication with the host.
+```bash
+# Apply Kubernetes Workloads
+sudo k3s kubectl apply -f k8s/postgres.yaml
+sudo k3s kubectl apply -f k8s/redis.yaml
+sudo k3s kubectl apply -f k8s/minio.yaml
+sudo k3s kubectl apply -f k8s/magnus-api.yaml
+sudo k3s kubectl apply -f k8s/magnus-worker.yaml
+```
 
-<details>
-  <summary>Show Deployment Configuration Commands</summary>
-
-  #### 1. Install Dependencies:
-  ```bash
-  sudo apt update
-  sudo apt install -y nodejs npm docker.io redis-server postgresql postgresql-contrib nginx
-  sudo npm install -g pm2
-  ```
-
-  #### 2. Configure Docker Permissions:
-  ```bash
-  sudo usermod -aG docker azureuser
-  # Restart the session
-  ```
-
-  #### 3. Database Bootstrap:
-  ```bash
-  sudo -u postgres psql -c "CREATE ROLE amankashyap WITH SUPERUSER LOGIN;"
-  sudo -u postgres createdb -O amankashyap ci_cd_engine
-  sudo -u postgres psql -d ci_cd_engine -f /home/azureuser/ci-cd-engine/backend/db.sql
-  ```
-
-  #### 4. Nginx Server Configuration:
-  Save in `/etc/nginx/sites-available/default`:
-  ```nginx
-  server {
-      listen 80;
-      server_name _;
-
-      location / {
-          root /home/azureuser/ci-cd-engine/frontend/dist;
-          try_files $uri $uri/ /index.html;
-      }
-
-      location /api/ {
-          proxy_pass http://localhost:5001/api/;
-          proxy_http_version 1.1;
-          proxy_set_header Upgrade $http_upgrade;
-          proxy_set_header Connection 'upgrade';
-          proxy_set_header Host $host;
-      }
-
-      location /socket.io/ {
-          proxy_pass http://localhost:5001/socket.io/;
-          proxy_http_version 1.1;
-          proxy_set_header Upgrade $http_upgrade;
-          proxy_set_header Connection "Upgrade";
-          proxy_set_header Host $host;
-      }
-  }
-  ```
-  ```bash
-  sudo systemctl restart nginx
-  ```
-
-  #### 5. Build and Start Application:
-  ```bash
-  cd /home/azureuser/ci-cd-engine/frontend && npm run build
-  cd /home/azureuser/ci-cd-engine/backend
-  pm2 start src/index.js --name "magnus-api"
-  pm2 start src/worker.js --name "magnus-worker"
-  pm2 save
-  ```
-</details>
-
+### Kubernetes Architecture Topology:
+1. **Scaled API Gateway (`magnus-api`):** Deployed as a multi-pod Kubernetes `Deployment` serving the Vite SPA static bundle and proxying API/WebSocket traffic.
+2. **Background Queue Daemon (`magnus-worker`):** Runs as a Kubernetes pod mounted with `/var/run/docker.sock` and `/tmp/magnus-builds` (`hostPath`) to spawn sibling container build sandboxes.
+3. **Database & Broker Layer:** PostgreSQL, Redis (with Socket.io Redis Adapter), and MinIO S3 Object Storage run as containerized Kubernetes workloads.
 
 
 <!-- FUTURE ROADMAP -->
 ## Future Scaling Scope & Kubernetes Roadmap
 
-To scale MagnusCI to handle 10,000+ builds per day for enterprise workloads **without incurring cloud infrastructure costs ($0/month)**, the architecture is designed to scale horizontally using 100% free, self-hosted Kubernetes ecosystems (configuration templates located inside [`k8s/`](file:///Users/amankashyap/Documents/ci-cd-engine/k8s)):
+To scale MagnusCI to handle 10,000+ builds per day for enterprise workloads:
 
-1. **Zero-Cost Cluster Infrastructure (k3s / Oracle Cloud Always Free):** Deploy a multi-node Kubernetes cluster using **k3s** (lightweight Kubernetes) hosted on Oracle Cloud's Always Free tier (4 OCPUs, 24 GB RAM) or local/homelab nodes.
-2. **Stateless Gateway Auto-Scaling:** Deploy Express API gateways as a stateless Kubernetes `Deployment` coupled with a **Horizontal Pod Autoscaler (HPA)** and **Nginx Ingress Controller** with **cert-manager** for automated Let's Encrypt TLS certificates.
-3. **In-Cluster Distributed Queue & Database:** Run Redis and PostgreSQL as Kubernetes `StatefulSets` backed by local PersistentVolumes instead of paid cloud managed database services.
-4. **Serverless Ephemeral Job Runners:** Refactor the worker daemon to invoke the **Kubernetes API Server** via `@kubernetes/client-node`. Each build stage spawns as a short-lived **Kubernetes Job Pod**, leveraging automatic pod lifecycle cleanup (`ttlSecondsAfterFinished`).
-5. **Daemonless Container Isolation (Kaniko / Rootless Podman):** Execute container image builds securely inside Kubernetes Jobs using **Kaniko** or **Rootless Podman**, removing root Docker daemon socket vulnerabilities without paid MicroVM infrastructure.
-6. **Zero-Cost Object Storage (MinIO S3 Alternative):** Store SHA-256 dependency caches and build log archives in a self-hosted **MinIO** instance deployed within the cluster, replacing Amazon S3 without storage fees.
-
+1. **Stateless Gateway Auto-Scaling:** Deploy API gateways with a Horizontal Pod Autoscaler (HPA) and Nginx Ingress Controller with cert-manager for automated Let's Encrypt TLS certificates.
+2. **Serverless Ephemeral Job Runners:** Refactor worker daemon to invoke the Kubernetes API Server via `@kubernetes/client-node`. Each build stage spawns as a short-lived Kubernetes Job Pod, leveraging automatic pod lifecycle cleanup (`ttlSecondsAfterFinished`).
+3. **Daemonless Container Isolation (Kaniko / Rootless Podman):** Execute container image builds securely inside Kubernetes Jobs using Kaniko or Rootless Podman, removing root Docker daemon socket vulnerabilities.
 
 
 <!-- CHALLENGES AND LEARNINGS -->
 ## Challenges Faced & Learning Outcomes
 
-* **HMAC Request Ingress Verification:** express.js automatically parses incoming request streams, stripping HTTP headers and mutating body buffers, which broke HMAC signature validation. We resolved this by modifying the JSON parser configurations to capture and store the unparsed request buffer as `rawBody`.
-* **Container Telemetry Calculations:** Calculating CPU metrics programmatically from Docker stats required mapping container CPU deltas against the system's global CPU ticks over the same time interval.
-* **Circular Graph Validation:** User-defined build sequences inside `magnus-ci.json` introduce the risk of infinite loops (e.g. A needs B, B needs A). We resolved this by implementing a Depth-First Search (DFS) cycle-checking algorithm to audit the pipeline DAG before execution.
-* **State Management & WebSockets:** Gained experience managing high-throughput Socket.io log streams to prevent React state re-render lags.
-
+* **Kubernetes Docker-out-of-Docker Path Resolution:** When running `magnus-worker` inside a Kubernetes pod, spawning sibling containers via `/var/run/docker.sock` initially failed to locate cloned workspace files. We resolved this by mounting a shared `hostPath` volume (`/tmp/magnus-builds`) and configuring `HOST_WORKSPACE_PATH` so both pod and host Docker daemon share exact file paths.
+* **Alpine Git Dependency Ingestion:** Added `git` binary installation to Stage 2 of `backend/Dockerfile` (`apk add --no-cache git`), enabling repository cloning and checkout routines inside minimal Node-alpine container runtimes.
+* **HMAC Request Ingress Verification:** express.js automatically parses incoming request streams, stripping HTTP headers and mutating body buffers. We resolved this by modifying JSON parser configurations to capture and store the unparsed request buffer as `rawBody`.
+* **Circular Graph Validation:** User-defined build sequences inside `magnus-ci.json` introduce the risk of infinite loops. We implemented a Depth-First Search (DFS) cycle-checking algorithm to audit pipeline DAGs before execution.
 
 
 <!-- LICENSE -->
@@ -325,12 +292,10 @@ To scale MagnusCI to handle 10,000+ builds per day for enterprise workloads **wi
 Distributed under the MIT License. See `LICENSE` for more information.
 
 
-
 <!-- CONTACT -->
 ## Contributor
 
 Aman Kashyap - [@AmanKashyapp07](https://github.com/AmanKashyapp07) 
-
 
 
 <!-- MARKDOWN LINKS & IMAGES -->
@@ -344,6 +309,10 @@ Aman Kashyap - [@AmanKashyapp07](https://github.com/AmanKashyapp07)
 [issues-url]: https://github.com/AmanKashyapp07/ci-cd-engine/issues
 [license-shield]: https://img.shields.io/github/license/AmanKashyapp07/ci-cd-engine.svg?style=for-the-badge
 [license-url]: https://github.com/AmanKashyapp07/ci-cd-engine/blob/main/LICENSE
+[Kubernetes.io]: https://img.shields.io/badge/Kubernetes-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white
+[Kubernetes-url]: https://kubernetes.io/
+[Docker.com]: https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white
+[Docker-url]: https://www.docker.com/
 [React.js]: https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB
 [React-url]: https://reactjs.org/
 [Tailwind.css]: https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white
@@ -356,5 +325,5 @@ Aman Kashyap - [@AmanKashyapp07](https://github.com/AmanKashyapp07)
 [Postgres-url]: https://www.postgresql.org/
 [Redis.io]: https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white
 [Redis-url]: https://redis.io/
-[Docker.com]: https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white
-[Docker-url]: https://www.docker.com/
+[Playwright.dev]: https://img.shields.io/badge/Playwright-2EAD33?style=for-the-badge&logo=playwright&logoColor=white
+[Playwright-url]: https://playwright.dev/

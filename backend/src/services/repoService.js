@@ -15,6 +15,18 @@ class RepoService {
     return { owner: match[1], repo: match[2].replace(/\.git$/, '') };
   }
 
+  async getUserToken(userId) {
+    if (userId) {
+      try {
+        const res = await pool.query('SELECT access_token FROM users WHERE id = $1', [userId]);
+        if (res.rows[0]?.access_token) {
+          return res.rows[0].access_token;
+        }
+      } catch (err) {}
+    }
+    return config.GITHUB_TOKEN;
+  }
+
   async getLatestCommitHash(repositoryId) {
     const result = await pool.query(
       `SELECT commit_hash
@@ -46,7 +58,7 @@ class RepoService {
     const repo = result.rows[0];
     const parsed = this.parseRepoUrl(normalizedUrl);
     if (parsed) {
-      this.registerGitHubWebhook(parsed.owner, parsed.repo).catch(err => {
+      this.registerGitHubWebhook(parsed.owner, parsed.repo, userId).catch(err => {
         logger.error(`Webhook registration failed for ${parsed.owner}/${parsed.repo}`, err);
       });
     }
@@ -67,6 +79,7 @@ class RepoService {
     const repository = repoResult.rows[0];
     const repoInfo = this.parseRepoUrl(repository.github_url);
     const latestCommitHash = await this.getLatestCommitHash(repository.id);
+    const token = await this.getUserToken(userId);
 
     if (repoInfo && latestCommitHash) {
       try {
@@ -76,7 +89,8 @@ class RepoService {
           latestCommitHash,
           'error',
           'Magnus CI: repository disconnected from local pipeline',
-          config.FRONTEND_URL
+          config.FRONTEND_URL,
+          token
         );
       } catch (statusError) {
         logger.error(`Final GitHub status update failed: ${statusError.message}`);
@@ -84,7 +98,7 @@ class RepoService {
     }
 
     if (repoInfo) {
-      await this.unregisterGitHubWebhook(repoInfo.owner, repoInfo.repo);
+      await this.unregisterGitHubWebhook(repoInfo.owner, repoInfo.repo, userId);
     }
 
     const deleteResult = await pool.query(
@@ -95,12 +109,12 @@ class RepoService {
     return deleteResult.rows[0];
   }
 
-  async registerGitHubWebhook(owner, repo) {
+  async registerGitHubWebhook(owner, repo, userId = null) {
     const GITHUB_WEBHOOK_SECRET = config.GITHUB_WEBHOOK_SECRET;
-    const GITHUB_TOKEN = config.GITHUB_TOKEN;
+    const token = await this.getUserToken(userId);
 
-    if (!GITHUB_TOKEN) {
-      logger.info('No GITHUB_TOKEN provided, skipping automated webhook registration.');
+    if (!token) {
+      logger.info('No GitHub token provided, skipping automated webhook registration.');
       return;
     }
 
@@ -109,7 +123,7 @@ class RepoService {
       const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${GITHUB_TOKEN}`,
+          Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github+json',
           'User-Agent': 'MagnusCI-App',
           'Content-Type': 'application/json'
@@ -129,24 +143,24 @@ class RepoService {
 
       if (!response.ok) {
         const errorData = await response.json();
-        logger.error(`GitHub Webhook registration failed: ${errorData.message}`);
+        logger.error(`GitHub Webhook registration failed for ${owner}/${repo}: ${errorData.message}`);
       } else {
         logger.info(`Successfully registered webhook for ${owner}/${repo}`);
       }
     } catch (error) {
-      logger.error(`Error registering webhook: ${error.message}`);
+      logger.error(`Error registering webhook for ${owner}/${repo}: ${error.message}`);
     }
   }
 
-  async unregisterGitHubWebhook(owner, repo) {
-    const GITHUB_TOKEN = config.GITHUB_TOKEN;
-    if (!GITHUB_TOKEN) return;
+  async unregisterGitHubWebhook(owner, repo, userId = null) {
+    const token = await this.getUserToken(userId);
+    if (!token) return;
 
     try {
       const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks`, {
         method: 'GET',
         headers: {
-          Authorization: `Bearer ${GITHUB_TOKEN}`,
+          Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github+json',
           'User-Agent': 'MagnusCI-App'
         }
@@ -166,7 +180,7 @@ class RepoService {
           await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks/${hook.id}`, {
             method: 'DELETE',
             headers: {
-              Authorization: `Bearer ${GITHUB_TOKEN}`,
+              Authorization: `Bearer ${token}`,
               Accept: 'application/vnd.github+json',
               'User-Agent': 'MagnusCI-App'
             }

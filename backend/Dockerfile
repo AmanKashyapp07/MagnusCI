@@ -8,6 +8,7 @@ RUN npm run build
 
 # Stage 2: Backend Runtime & Production Image
 FROM node:20-alpine
+RUN apk add --no-cache git
 WORKDIR /app/backend
 COPY backend/package*.json ./
 RUN npm ci --only=production

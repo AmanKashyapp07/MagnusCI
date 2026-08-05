@@ -42,14 +42,17 @@ spec:
               value: "your_github_client_secret_here"
             - name: GITHUB_WEBHOOK_SECRET
               value: "aman123"
+            - name: GITHUB_TOKEN
+              value: "your_github_personal_access_token_here"
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: magnus-api
 spec:
+  type: ClusterIP
+  selector:
+    app: magnus-api
   ports:
     - port: 5001
       targetPort: 5001
-  selector:
-    app: magnus-api

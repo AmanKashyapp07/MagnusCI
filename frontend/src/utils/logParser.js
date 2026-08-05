@@ -6,7 +6,7 @@ function parseTimeToSeconds(timeStr) {
   return null;
 }
 
-export function stripAnsi(str) {
+function stripAnsi(str) {
   if (!str) return "";
   
   // 1. Strip ANSI escape codes
@@ -43,7 +43,7 @@ export function stripAnsi(str) {
   }).join('\n');
 }
 
-export function parseLogsIntoSteps(rawLogs, buildStatus) {
+function parseLogsIntoSteps(rawLogs, buildStatus) {
   if (!rawLogs) return [];
 
   const cleanLogs = stripAnsi(rawLogs);
@@ -74,7 +74,6 @@ export function parseLogsIntoSteps(rawLogs, buildStatus) {
 
     if (match) {
       const stageName = match[1].toLowerCase();
-      const content = match[2];
 
       // Exclude system names
       if (stageName !== 'worker' && stageName !== 'engine' && stageName !== 'revert') {
@@ -236,3 +235,8 @@ export function parseLogsIntoSteps(rawLogs, buildStatus) {
 
   return steps.filter(s => s.lines.length > 0 || ['setup_workspace', 'env_detect', 'cleanup'].includes(s.id));
 }
+
+module.exports = {
+  stripAnsi,
+  parseLogsIntoSteps
+};

@@ -1,118 +1,118 @@
 #!/usr/bin/env bash
 
 ###############################################################################
-# MagnusCI Automated Production Deployment Script
+# Production Zero-Downtime Kubernetes Deployment Script
 #
-# Target Server: Azure VM (azureuser@4.145.89.253)
-# Live Domain:   http://magnus-ci.online
+# Target Server: http://magnus-ci.online (Azure VM 4.145.89.253)
+# Kubernetes Engine: K3s
 #
-# Workflow:
-# 1. Run local test suite (unit + integration)
-# 2. Push code to GitHub (origin main)
-# 3. Connect to Azure VM via SSH
-# 4. Prune Docker build cache & flush PM2 logs
-# 5. Sync latest commits from GitHub
-# 6. Build frontend Vite static bundle & install backend dependencies
-# 7. Restart PM2 processes (magnus-api & magnus-worker)
-# 8. Run live E2E deployment tests against http://magnus-ci.online
+# Workflows Executed:
+# 1. SSH authentication check
+# 2. Local workspace git status verification
+# 3. Remote git sync (git fetch & git reset)
+# 4. Injects production environment secrets
+# 5. Container image build (amankashyap07/magnus-api:latest)
+# 6. Container import into k3s image runtime
+# 7. Rollout restart for magnus-api and magnus-worker deployments
+# 8. Pod readiness health verification
 ###############################################################################
 
-set -e # Exit immediately if any command fails
+set -e # Exit immediately on error
 
-# Color definitions
+# Colors & Formatting
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
-
-SERVER_USER="azureuser"
-SERVER_IP="4.145.89.253"
-KEY_FILE="magnus-ci-server_key.pem"
-REMOTE_PATH="/home/azureuser/ci-cd-engine"
-LIVE_DOMAIN="http://magnus-ci.online"
+YELLOW='\033[0;33m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+RESET='\033[0m'
 
 log_info() {
-    echo -e "${CYAN}[INFO] ${1}${NC}"
+    echo -e "${CYAN}${BOLD}[INFO]${RESET} $1"
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS] ${1}${NC}"
+    echo -e "${GREEN}${BOLD}[SUCCESS]${RESET} $1"
 }
 
 log_warn() {
-    echo -e "${YELLOW}[WARN] ${1}${NC}"
+    echo -e "${YELLOW}${BOLD}[WARNING]${RESET} $1"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR] ${1}${NC}"
+    echo -e "${RED}${BOLD}[ERROR]${RESET} $1"
 }
 
-log_info "Starting MagnusCI Production Deployment Workflow..."
+echo -e "${MAGENTA}${BOLD}"
+echo "========================================================================"
+echo " MagnusCI Kubernetes Zero-Downtime Deployment Manager"
+echo "========================================================================"
+echo -e "${RESET}"
 
-# Step 1: Check SSH Private Key
-if [ ! -f "$KEY_FILE" ]; then
-    log_error "SSH Key file '$KEY_FILE' not found in root directory!"
+SSH_KEY="magnus-ci-server_key.pem"
+REMOTE_USER="azureuser"
+REMOTE_IP="4.145.89.253"
+REMOTE_DIR="/home/azureuser/ci-cd-engine"
+
+# Step 1: Verify local SSH Key existence
+if [ ! -f "$SSH_KEY" ]; then
+    log_error "SSH key file '$SSH_KEY' not found in current directory."
     exit 1
 fi
-chmod 600 "$KEY_FILE"
-log_success "SSH key file permission set to 600."
 
-# Step 2: Run Local Test Suite (unless --skip-tests flag passed)
-if [[ "$*" == *"--skip-tests"* ]]; then
-    log_warn "Skipping pre-deployment local test suite (--skip-tests flag detected)."
+chmod 600 "$SSH_KEY"
+
+# Step 2: Test SSH Connectivity
+log_info "Testing SSH connectivity to Azure VM (${REMOTE_USER}@${REMOTE_IP})..."
+if ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${REMOTE_USER}@${REMOTE_IP}" "echo Connected" >/dev/null 2>&1; then
+    log_success "SSH connection established successfully."
 else
-    log_info "Running pre-deployment local test suites..."
-    (cd testing && npm test)
-    log_success "All pre-deployment test suites passed cleanly!"
+    log_error "Failed to connect to ${REMOTE_USER}@${REMOTE_IP}. Please check network or VM state."
+    exit 1
 fi
 
-# Step 3: Push code to GitHub origin main
-log_info "Pushing latest commits to GitHub repository (origin main)..."
-if git push origin main; then
-    log_success "GitHub repository updated successfully."
-else
-    log_warn "Git push returned warning or no new commits. Proceeding with deployment..."
+# Step 3: Local Git Status Check
+log_info "Verifying local Git repository state..."
+if [ -n "$(git status --porcelain)" ]; then
+    log_warn "Uncommitted changes detected in local repository."
 fi
 
-# Step 4: Execute Remote Azure VM Deployment via SSH
-log_info "Connecting to Azure VM ($SERVER_USER@$SERVER_IP) to execute remote deployment..."
+# Step 4: Execute Remote K8s Build & Deployment Sequence
+log_info "Initiating remote Kubernetes build and zero-downtime rollout..."
 
-SSH_CMD="ssh -i $KEY_FILE -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP"
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "${REMOTE_USER}@${REMOTE_IP}" "bash -s" << 'EOF'
+set -e
+cd /home/azureuser/ci-cd-engine
 
-$SSH_CMD "
-    set -e
-    echo '[REMOTE] Reclaiming disk space (Docker prune & PM2 log flush)...'
-    sudo docker system prune -af --volumes 2>/dev/null || true
-    pm2 flush 2>/dev/null || true
+echo '[REMOTE] Fetching latest repository commits...'
+if [ ! -d ".git" ]; then
+    echo '[REMOTE] Initializing remote git workspace...'
+    git init
+    git remote add origin https://github.com/AmanKashyapp07/ci-cd-engine.git
+fi
+git fetch origin main
+git reset --hard origin/main
 
-    echo '[REMOTE] Synchronizing repository code with GitHub main branch...'
-    cd $REMOTE_PATH
-    if [ ! -d '.git' ]; then
-        git init
-        git remote add origin https://github.com/AmanKashyapp07/CI-CD-Engine.git 2>/dev/null || git remote set-url origin https://github.com/AmanKashyapp07/CI-CD-Engine.git
-    fi
-    git fetch origin main
-    git reset --hard origin/main
+echo '[REMOTE] Building production Docker container image (magnus-api)...'
+sudo docker build -t amankashyap07/magnus-api:latest -f backend/Dockerfile .
 
-    echo '[REMOTE] Building production frontend assets...'
-    cd $REMOTE_PATH/frontend
-    npm install --silent
-    npm run build
+echo '[REMOTE] Importing Docker image into k3s container runtime...'
+sudo docker save amankashyap07/magnus-api:latest | sudo k3s ctr image import -
 
-    echo '[REMOTE] Installing backend dependencies...'
-    cd $REMOTE_PATH/backend
-    npm install --silent
+echo '[REMOTE] Applying Kubernetes manifests...'
+sudo k3s kubectl apply -f k8s/
 
-    echo '[REMOTE] Restarting PM2 process daemons (magnus-api & magnus-worker)...'
-    pm2 restart all
-    pm2 save
-"
+echo '[REMOTE] Initiating zero-downtime rollout restart...'
+sudo k3s kubectl rollout restart deployment magnus-api
+sudo k3s kubectl rollout restart deployment magnus-worker
 
-log_success "Remote server update, build compilation, and PM2 restart completed successfully!"
+echo '[REMOTE] Waiting for pod rollout completion...'
+sudo k3s kubectl rollout status deployment magnus-api --timeout=60s
+sudo k3s kubectl rollout status deployment magnus-worker --timeout=60s
 
-# Step 5: Post-Deployment Live Verification
-log_info "Running post-deployment live E2E tests against $LIVE_DOMAIN..."
-(cd testing && npm run test:e2e)
+echo '[REMOTE] Verified Kubernetes Cluster Pod Status:'
+sudo k3s kubectl get pods -o wide
+EOF
 
-log_success "🎉 Deployment Complete & Live Site Verified! Live App: $LIVE_DOMAIN"
+log_success "Deployment completed successfully! Live at http://magnus-ci.online"

@@ -1,7 +1,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 
-const BASE_TEMP_DIR = path.join(__dirname, '../temp_builds');
+const BASE_TEMP_DIR = process.env.HOST_WORKSPACE_PATH || path.join(__dirname, '../temp_builds');
 
 async function createWorkspace(buildId) {
   const workspacePath = path.join(BASE_TEMP_DIR, String(buildId));

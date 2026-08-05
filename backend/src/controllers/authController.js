@@ -5,7 +5,7 @@ const userService = require('../services/userService');
 
 class AuthController {
   initiateGithubLogin(req, res) {
-    const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${config.GITHUB_CLIENT_ID}&scope=read:user`;
+    const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${config.GITHUB_CLIENT_ID}&scope=repo%20admin:repo_hook%20repo:status%20read:user`;
     res.redirect(githubAuthUrl);
   }
 
@@ -54,7 +54,7 @@ class AuthController {
       const avatarUrl = userData.avatar_url;
 
       // 3. Find or create user in PostgreSQL
-      const userId = await userService.findOrCreateUserByGithubId(githubId, username, avatarUrl);
+      const userId = await userService.findOrCreateUserByGithubId(githubId, username, avatarUrl, accessToken);
 
       // 4. Generate JWT Session Token
       const jwtToken = jwt.sign({ id: userId, username }, config.JWT_SECRET, {

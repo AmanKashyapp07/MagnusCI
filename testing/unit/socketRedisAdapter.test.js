@@ -1,15 +1,15 @@
 describe('Scaling Unit Tests: Socket.io Redis Adapter Integration', () => {
 
   test('should verify redis and @socket.io/redis-adapter dependencies can be loaded', () => {
-    const { createAdapter } = require('@socket.io/redis-adapter');
-    const { createClient } = require('redis');
+    const { createAdapter } = require('../../backend/node_modules/@socket.io/redis-adapter');
+    const { createClient } = require('../../backend/node_modules/redis');
 
     expect(typeof createAdapter).toBe('function');
     expect(typeof createClient).toBe('function');
   });
 
   test('should verify Redis client configuration parameters', () => {
-    const { createClient } = require('redis');
+    const { createClient } = require('../../backend/node_modules/redis');
     const host = process.env.REDIS_HOST || '127.0.0.1';
     const port = process.env.REDIS_PORT || '6379';
 

@@ -14,7 +14,8 @@ spec:
     spec:
       containers:
         - name: magnus-worker
-          image: amankashyap07/magnus-worker:latest
+          image: amankashyap07/magnus-api:latest
+          command: ["node", "src/worker.js"]
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -27,17 +28,24 @@ spec:
               value: "amankashyap"
             - name: POSTGRES_DB
               value: "ci_cd_engine"
+            - name: HOST_WORKSPACE_PATH
+              value: "/tmp/magnus-builds"
             - name: GITHUB_TOKEN
               value: "your_github_personal_access_token_here"
           volumeMounts:
             - name: docker-socket
               mountPath: /var/run/docker.sock
+            - name: temp-builds
+              mountPath: /tmp/magnus-builds
             - name: build-cache
               mountPath: /home/azureuser/ci-cd-engine/backend/caches
       volumes:
         - name: docker-socket
           hostPath:
             path: /var/run/docker.sock
+        - name: temp-builds
+          hostPath:
+            path: /tmp/magnus-builds
         - name: build-cache
           hostPath:
             path: /var/run/docker-cache-dir

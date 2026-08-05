@@ -60,16 +60,18 @@ app.use((req, res, next) => {
 // Global Centralized Error Handler
 app.use(errorHandler);
 
+const initDB = require('./dbInit');
+
 // Bootstrap Server & DB Check
 const server = app.listen(config.PORT, () => {
   logger.info(`MagnusCI API Gateway active on http://localhost:${config.PORT}`);
   
-  pool.query('SELECT NOW()')
-    .then(result => {
-      logger.info(`PostgreSQL Database connection verified. Server time: ${result.rows[0].now}`);
+  initDB()
+    .then(() => {
+      logger.info('PostgreSQL Database connection & schema verified.');
     })
     .catch(error => {
-      logger.error('PostgreSQL Database connection failed:', error);
+      logger.error('PostgreSQL Database initialization failed:', error);
     });
 });
 

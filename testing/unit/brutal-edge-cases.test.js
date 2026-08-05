@@ -139,8 +139,8 @@ describe('Brutal Edge-Case & Resiliency Test Suite', () => {
 
     let parseLogsIntoSteps;
 
-    beforeAll(async () => {
-      const module = await import('../../frontend/src/utils/logParser.js');
+    beforeAll(() => {
+      const module = require('../../frontend/src/utils/logParser.js');
       parseLogsIntoSteps = module.parseLogsIntoSteps;
     });
 

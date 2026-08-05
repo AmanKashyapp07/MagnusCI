@@ -4,19 +4,25 @@
   "description": "Production-Grade Test Suite for MagnusCI",
   "main": "jest.config.js",
   "scripts": {
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand --detectOpenHandles --forceExit",
-    "test:unit": "NODE_OPTIONS=--experimental-vm-modules jest unit --runInBand",
-    "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest integration --runInBand",
-    "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest e2e --runInBand --timeout=30000"
+    "test": "jest --runInBand --detectOpenHandles --forceExit",
+    "test:unit": "jest unit --runInBand",
+    "test:integration": "jest integration --runInBand",
+    "test:e2e": "jest e2e --runInBand --timeout=30000",
+    "test:playwright": "npx playwright test"
   },
   "keywords": [
     "ci-cd",
     "testing",
     "jest",
+    "playwright",
     "supertest"
   ],
   "author": "MagnusCI Team",
   "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "playwright": "^1.50.0"
+  },
   "dependencies": {
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
