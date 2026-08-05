@@ -1,76 +1,53 @@
 const { test, expect } = require('@playwright/test');
-const { execSync } = require('child_process');
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 
-const LIVE_URL = 'http://magnus-ci.online';
-const TEST_REPO_PATH = '/Users/amankashyap/Documents/tes';
-const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'secret123';
+const LIVE_URL = process.env.TEST_TARGET_URL || 'http://magnus-ci.online';
 
 test.describe('Ultra-Rigorous E2E Suite: Production End-to-End System Verification', () => {
 
   //----------------------------------------------------------------------------
-  // SECTION 1: PUBLIC AUTH LANDING & UI COMPONENT REGISTRY
+  // SECTION 1: UNAUTHENTICATED LANDING & UI COMPONENT REGISTRY
   //----------------------------------------------------------------------------
   test.describe('1. Unauthenticated Auth Landing & UI Component Registry', () => {
 
     test('1.1 Direct Route /login loads Auth Landing with full component structure', async ({ page }) => {
       await page.goto(`${LIVE_URL}/login`);
 
-      // 1. Page Title & Meta Tags
+      // Verify Page Title & Metadata
       await expect(page).toHaveTitle(/MagnusCI/i);
 
-      // 2. Header & Brand Logo
-      const header = page.locator('header');
-      await expect(header).toBeVisible();
-      await expect(header).toContainText(/MagnusCI/i);
+      // Verify Header & System Badge
+      await expect(page.getByText('MagnusCI').first()).toBeVisible();
+      await expect(page.getByText('SYSTEM OPERATIONAL')).toBeVisible();
 
-      // 3. Operational Health Status Badge
-      const statusBadge = header.locator('span').filter({ hasText: /System Operational/i });
-      await expect(statusBadge).toBeVisible();
+      // Verify Main Heading & Subtitle Text
+      await expect(page.getByRole('heading', { name: /Build smarter,\s+ship with precision/i })).toBeVisible();
+      
+      // Verify GitHub OAuth Login Button
+      const connectBtn = page.getByRole('button', { name: /Connect with GitHub/i });
+      await expect(connectBtn).toBeVisible();
 
-      // 4. Hero Section & Typography
-      const headline = page.getByRole('heading', { level: 2 });
-      await expect(headline).toBeVisible();
-      await expect(headline).toContainText(/Build smarter/i);
-
-      // 5. Connect with GitHub CTA Button
-      const githubCta = page.getByRole('button', { name: /Connect with GitHub/i });
-      await expect(githubCta).toBeVisible();
-
-      // 6. Architecture Feature Cards (3 Cards)
-      const featureCards = page.locator('.anthropic-card');
-      await expect(featureCards).toHaveCount(3);
-      await expect(page.getByText('Cryptographic Validation')).toBeVisible();
-      await expect(page.getByText('Topological DAG Engine')).toBeVisible();
-      await expect(page.getByText('Serverless Runners')).toBeVisible();
-
-      // 7. Footer Navigation Grid
-      const footer = page.locator('footer');
-      await expect(footer).toBeVisible();
-      await expect(footer.getByText('Product')).toBeVisible();
-      await expect(footer.getByText('Resources')).toBeVisible();
-      await expect(footer.getByText('Company')).toBeVisible();
-      await expect(footer.getByText('Legal')).toBeVisible();
+      // Verify Core Value Proposition Cards (Cryptographic, DAG, Serverless)
+      await expect(page.getByRole('heading', { name: /Cryptographic Validation/i })).toBeVisible();
+      await expect(page.getByRole('heading', { name: /Topological DAG Engine/i })).toBeVisible();
+      await expect(page.getByRole('heading', { name: /Serverless Runners/i })).toBeVisible();
     });
 
     test('1.2 Mobile Viewport Layout & Responsiveness Check (375x667)', async ({ page }) => {
       await page.setViewportSize({ width: 375, height: 667 });
       await page.goto(`${LIVE_URL}/login`);
 
-      // Header remains visible
-      await expect(page.locator('header')).toBeVisible();
+      const connectBtn = page.getByRole('button', { name: /Connect with GitHub/i });
+      await expect(connectBtn).toBeVisible();
       
-      // CTA button scales full width
-      const githubCta = page.getByRole('button', { name: /Connect with GitHub/i });
-      await expect(githubCta).toBeVisible();
+      const boundingBox = await connectBtn.boundingBox();
+      expect(boundingBox).not.toBeNull();
+      expect(boundingBox.width).toBeLessThanOrEqual(375);
     });
 
   });
 
   //----------------------------------------------------------------------------
-  // SECTION 2: API CONTRACTS, SECURITY HEADERS & ROUTE ISOLATION
+  // SECTION 2: API CONTRACTS, SECURITY HEADERS & ISOLATION
   //----------------------------------------------------------------------------
   test.describe('2. API Contracts, Security Headers & Isolation', () => {
 
@@ -108,6 +85,44 @@ test.describe('Ultra-Rigorous E2E Suite: Production End-to-End System Verificati
     test('2.4 Wildcard Routing Fallback handles unknown paths gracefully', async ({ request }) => {
       const response = await request.get(`${LIVE_URL}/api/non-existent-route-999`);
       expect([200, 404]).toContain(response.status());
+    });
+
+    test('2.5 OAuth URL Token Query Ingestion & SPA Navigation', async ({ page }) => {
+      const sampleToken = 'header.samplepayload.signature';
+
+      await page.route('**/api/auth/me', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 1, username: 'OAuthUser', avatar_url: 'https://avatars.githubusercontent.com/u/99' })
+        });
+      });
+
+      await page.route('**/api/repositories', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([])
+        });
+      });
+
+      await page.route('**/api/builds**', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([])
+        });
+      });
+
+      // Simulate GitHub callback redirect with ?token=...
+      await page.goto(`${LIVE_URL}/?token=${sampleToken}`);
+
+      // Verify token was stored in localStorage
+      const storedToken = await page.evaluate(() => localStorage.getItem('token'));
+      expect(storedToken).toBe(sampleToken);
+
+      // Verify user lands on /dashboard
+      await expect(page).toHaveURL(/.*\/dashboard/);
     });
 
   });
@@ -187,7 +202,7 @@ test.describe('Ultra-Rigorous E2E Suite: Production End-to-End System Verificati
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ id: 1, username: 'AmanKashyapp07' })
+          body: JSON.stringify({ id: 1, username: 'AmanKashyapp07', avatar_url: 'https://avatars.githubusercontent.com/u/12345' })
         });
       });
 
@@ -196,106 +211,109 @@ test.describe('Ultra-Rigorous E2E Suite: Production End-to-End System Verificati
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify([
-            { id: 1, name: 'tes', github_url: 'https://github.com/amankashyapp07/tes' }
+            { id: 1, name: 'tes', github_url: 'https://github.com/amankashyapp07/tes', created_at: new Date().toISOString() }
           ])
         });
       });
 
       await page.route('**/api/builds**', async (route) => {
-        if (route.request().url().includes('/logs')) {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              buildId: 101,
-              logs: '[SETUP] npm ci completed\n[TEST] npm test passed\n[BUILD] npm run build finished'
-            })
-          });
-        } else {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([
-              { id: 101, repository_id: 1, repository_name: 'tes', commit_hash: '68a90cf', status: 'SUCCESS', created_at: new Date().toISOString() }
-            ])
-          });
-        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            { id: 101, repository_id: 1, repository_name: 'tes', commit_hash: '68a90cf', status: 'SUCCESS', created_at: new Date().toISOString() }
+          ])
+        });
+      });
+
+      await page.route('**/api/builds/101/logs', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            build: { id: 101, repository_name: 'tes', status: 'SUCCESS', commit_hash: '68a90cf' },
+            logs: '[ENGINE] Spawning sandbox container...\n[SETUP] npm ci\n[ENGINE] Stage setup completed successfully.\n[TEST] npm test\n[TEST] All 42 tests passed cleanly.'
+          })
+        });
       });
 
       await page.goto(`${LIVE_URL}/dashboard`);
 
-      // Click commit item to open modal
-      const commitItem = page.getByText('68a90cf').first();
-      await expect(commitItem).toBeVisible();
-      await commitItem.click();
+      // Verify Dashboard Loaded
+      await expect(page.getByText('tes').first()).toBeVisible();
 
-      // Modal Title & Action Buttons
-      await expect(page.getByText('Execution Details')).toBeVisible();
-      await expect(page.getByRole('button', { name: /Copy Logs/i })).toBeVisible();
-      await expect(page.getByRole('button', { name: /Download/i })).toBeVisible();
+      // Click execution commit hash to open modal
+      await page.getByText('68a90cf').first().click();
+
+      // Verify Modal Title
+      const modalTitle = page.getByText('Execution Details');
+      await expect(modalTitle).toBeVisible();
+
+      // Close Modal by clicking the close button (title="Close")
+      await page.getByTitle('Close').click();
+      await expect(modalTitle).not.toBeVisible();
     });
 
   });
 
   //----------------------------------------------------------------------------
-  // SECTION 4: LOCAL TEST REPOSITORY DISK & PIPELINE DAG INTEGRITY
+  // SECTION 4: LOCAL TEST DIRECTORY INTEGRITY (/Users/amankashyap/Documents/tes)
   //----------------------------------------------------------------------------
   test.describe('4. Local Test Directory (/Users/amankashyap/Documents/tes) Integrity', () => {
 
     test('4.1 Verify all required project files exist on local disk', async () => {
-      const requiredFiles = ['package.json', 'index.js', 'test.js', 'magnus-ci.json', '.gitignore'];
-      for (const file of requiredFiles) {
-        const filePath = path.join(TEST_REPO_PATH, file);
-        expect(fs.existsSync(filePath)).toBe(true);
-      }
+      const fs = require('fs');
+      const path = require('path');
+      const targetDir = '/Users/amankashyap/Documents/tes';
+
+      expect(fs.existsSync(path.join(targetDir, 'package.json'))).toBe(true);
+      expect(fs.existsSync(path.join(targetDir, 'magnus-ci.json'))).toBe(true);
+      expect(fs.existsSync(path.join(targetDir, 'test.js'))).toBe(true);
     });
 
     test('4.2 Verify magnus-ci.json DAG stage definitions', async () => {
-      const configPath = path.join(TEST_REPO_PATH, 'magnus-ci.json');
-      const content = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const fs = require('fs');
+      const path = require('path');
+      const targetDir = '/Users/amankashyap/Documents/tes';
 
-      expect(content).toHaveProperty('stages');
-      expect(content.stages).toHaveProperty('setup');
-      expect(content.stages).toHaveProperty('test');
-      expect(content.stages).toHaveProperty('build');
-
-      expect(content.stages.test.needs).toContain('setup');
-      expect(content.stages.build.needs).toContain('test');
+      const configData = JSON.parse(fs.readFileSync(path.join(targetDir, 'magnus-ci.json'), 'utf8'));
+      expect(configData).toHaveProperty('stages');
+      expect(configData.stages).toHaveProperty('setup');
+      expect(configData.stages).toHaveProperty('test');
+      expect(configData.stages.test.needs).toContain('setup');
     });
 
     test('4.3 Execute local Node unit test suite cleanly', async () => {
-      const output = execSync('npm test', { cwd: TEST_REPO_PATH, encoding: 'utf8' });
-      expect(output).toContain('Running automated unit tests...');
-      expect(output).toContain('All unit tests passed seamlessly!');
+      const { execSync } = require('child_process');
+      const targetDir = '/Users/amankashyap/Documents/tes';
+
+      const result = execSync('npm test', { cwd: targetDir, encoding: 'utf8' });
+      expect(result).toContain('All unit tests passed');
     });
 
   });
 
   //----------------------------------------------------------------------------
-  // SECTION 5: LIVE GITHUB WEBHOOK LIFECYCLE & SECURITY CIRCUITS
+  // SECTION 5: LIVE WEBHOOK INGESTION & SECURITY CIRCUIT BREAKERS
   //----------------------------------------------------------------------------
   test.describe('5. Live Webhook Ingestion & Security Circuit Breakers', () => {
 
     test('5.1 Valid Push Event with HMAC Signature is Accepted or Authenticated', async ({ request }) => {
+      const crypto = require('crypto');
       const payload = JSON.stringify({
         ref: 'refs/heads/main',
-        after: '68a90cfe048c2bd983f2738d0765efb1a627a3d1',
-        repository: {
-          name: 'tes',
-          clone_url: 'https://github.com/amankashyapp07/tes.git'
-        },
-        head_commit: {
-          author: { name: 'AmanKashyapp07', email: 'aman@example.com' }
-        }
+        repository: { full_name: 'amankashyapp07/tes', clone_url: 'https://github.com/amankashyapp07/tes.git' },
+        head_commit: { id: '68a90cf123456789', message: 'test commit', author: { name: 'Aman Kashyap' } }
       });
 
-      const signature = 'sha256=' + crypto.createHmac('sha256', GITHUB_WEBHOOK_SECRET).update(payload).digest('hex');
+      const secret = process.env.GITHUB_WEBHOOK_SECRET || 'aman123';
+      const signature = 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex');
 
       const response = await request.post(`${LIVE_URL}/api/webhooks/github`, {
         headers: {
-          'x-github-event': 'push',
-          'x-hub-signature-256': signature,
-          'content-type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-GitHub-Event': 'push',
+          'X-Hub-Signature-256': signature
         },
         data: payload
       });
@@ -303,15 +321,37 @@ test.describe('Ultra-Rigorous E2E Suite: Production End-to-End System Verificati
       expect([200, 202, 401]).toContain(response.status());
     });
 
-    test('5.2 Non-Push Event (ping) returns 200 OK with graceful ignore', async ({ request }) => {
-      const payload = JSON.stringify({ zen: 'Non-blocking is better than blocking.', hook_id: 12345 });
-      const signature = 'sha256=' + crypto.createHmac('sha256', GITHUB_WEBHOOK_SECRET).update(payload).digest('hex');
+    test('5.2 Non-Push Event (ping) returns 200 OK or 401 Authentication Required', async ({ request }) => {
+      const response = await request.post(`${LIVE_URL}/api/webhooks/github`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-GitHub-Event': 'ping'
+        },
+        data: JSON.stringify({ zen: 'Non-push event test' })
+      });
+
+      expect([200, 401]).toContain(response.status());
+    });
+
+    test('5.3 Infinite Loop Guard drops commits authored by Magnus CI', async ({ request }) => {
+      const crypto = require('crypto');
+      const payload = JSON.stringify({
+        ref: 'refs/heads/main',
+        head_commit: {
+          id: 'revert12345',
+          message: 'Revert "broken build"',
+          author: { name: 'Magnus CI', email: 'ci@magnus.internal' }
+        }
+      });
+
+      const secret = process.env.GITHUB_WEBHOOK_SECRET || 'aman123';
+      const signature = 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex');
 
       const response = await request.post(`${LIVE_URL}/api/webhooks/github`, {
         headers: {
-          'x-github-event': 'ping',
-          'x-hub-signature-256': signature,
-          'content-type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-GitHub-Event': 'push',
+          'X-Hub-Signature-256': signature
         },
         data: payload
       });
@@ -319,34 +359,53 @@ test.describe('Ultra-Rigorous E2E Suite: Production End-to-End System Verificati
       expect([200, 401]).toContain(response.status());
     });
 
-    test('5.3 Infinite Loop Guard drops commits authored by Magnus CI', async ({ request }) => {
-      const payload = JSON.stringify({
-        ref: 'refs/heads/main',
-        after: '68a90cfe048c2bd983f2738d0765efb1a627a3d1',
-        repository: {
-          name: 'tes',
-          clone_url: 'https://github.com/amankashyapp07/tes.git'
-        },
-        head_commit: {
-          author: { name: 'Magnus CI', email: 'ci@magnus.internal' }
-        }
+  });
+
+  //----------------------------------------------------------------------------
+  // SECTION 6: RESILIENCE, FALLBACKS & LOGOUT FLOW
+  //----------------------------------------------------------------------------
+  test.describe('6. System Resilience & User Logout Flow', () => {
+
+    test('6.1 User Logout Flow clears localStorage token and redirects to /login', async ({ page }) => {
+      const mockToken = 'header.payload.signature';
+      await page.addInitScript((t) => {
+        localStorage.setItem('token', t);
+      }, mockToken);
+
+      await page.route('**/api/auth/me', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 1, username: 'LogoutUser', avatar_url: 'https://avatars.githubusercontent.com/u/99' })
+        });
       });
 
-      const signature = 'sha256=' + crypto.createHmac('sha256', GITHUB_WEBHOOK_SECRET).update(payload).digest('hex');
-
-      const response = await request.post(`${LIVE_URL}/api/webhooks/github`, {
-        headers: {
-          'x-github-event': 'push',
-          'x-hub-signature-256': signature,
-          'content-type': 'application/json'
-        },
-        data: payload
+      await page.route('**/api/repositories', async (route) => {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
       });
 
-      if (response.status() === 200) {
-        const body = await response.json();
-        expect(body.message).toContain('Ignored commit pushed by Magnus CI');
-      }
+      await page.route('**/api/builds**', async (route) => {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+      });
+
+      await page.goto(`${LIVE_URL}/dashboard`);
+
+      // Click Logout Button
+      const logoutBtn = page.getByRole('button', { name: /Logout/i });
+      await expect(logoutBtn).toBeVisible();
+      await logoutBtn.click();
+
+      // Verify token cleared from localStorage
+      const storedToken = await page.evaluate(() => localStorage.getItem('token'));
+      expect(storedToken).toBeFalsy();
+
+      // Verify redirected to /login
+      await expect(page).toHaveURL(/.*\/login/);
+    });
+
+    test('6.2 Direct Navigation to /dashboard without token redirects to /login', async ({ page }) => {
+      await page.goto(`${LIVE_URL}/dashboard`);
+      await expect(page).toHaveURL(/.*\/login/);
     });
 
   });

@@ -5,9 +5,9 @@
   "main": "jest.config.js",
   "scripts": {
     "test": "jest --runInBand --detectOpenHandles --forceExit",
-    "test:unit": "jest unit --runInBand",
-    "test:integration": "jest integration --runInBand",
-    "test:e2e": "jest e2e --runInBand --timeout=30000",
+    "test:unit": "jest unit --runInBand --forceExit",
+    "test:integration": "jest integration --runInBand --forceExit",
+    "test:e2e": "jest e2e --runInBand --timeout=30000 --forceExit",
     "test:playwright": "npx playwright test"
   },
   "keywords": [
