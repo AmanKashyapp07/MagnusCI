@@ -120,7 +120,7 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
       }
     } else if ((trimmed.includes('Captured') && trimmed.includes('build artifact')) || trimmed.includes('[ARTIFACTS]') || trimmed.includes('Gathering build artifacts')) {
       systemEndSteps.artifacts.lines.push(line);
-    } else if (trimmed.includes('Pruning operational file tree') || trimmed.includes('fully executed and finished context') || trimmed.includes('Pruned operational') || trimmed.includes('Teardown')) {
+    } else if (trimmed.includes('Pruning operational file tree') || trimmed.includes('fully executed and finished context') || trimmed.includes('Pruned operational') || trimmed.includes('Teardown') || trimmed.includes('finished context routines')) {
       systemEndSteps.cleanup.lines.push(line);
     } else {
       if (lastActiveStage && dynamicStages[lastActiveStage]) {
@@ -198,6 +198,8 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
     }
   }
 
+  const isFinishedLogStream = cleanLogs.includes('DAG pipeline session finished') || cleanLogs.includes('finished context routines');
+
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
 
@@ -213,19 +215,28 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
              cleanLine.includes('breakdown');
     });
 
+    const isStageCompletedInLogs = step.lines.some(l => 
+      l.includes('completed successfully') || 
+      l.includes('executed cleanly') || 
+      l.includes('exited cleanly')
+    ) || isFinishedLogStream;
+
     if (hasError) {
       step.status = 'failed';
     } else if (step.lines.length > 0) {
       const isLastActiveStep = i === steps.findLastIndex(s => s.lines.length > 0);
-      if (isLastActiveStep && buildStatus === 'RUNNING') {
+
+      if (isStageCompletedInLogs) {
+        step.status = 'success';
+      } else if (isLastActiveStep && buildStatus === 'RUNNING') {
         step.status = 'running';
       } else {
         step.status = 'success';
       }
     } else {
-      if (buildStatus === 'SUCCESS') {
+      if (buildStatus === 'SUCCESS' || isFinishedLogStream) {
         step.status = 'success';
-      } else if (step.id === 'cleanup' && buildStatus === 'FAILED') {
+      } else if (step.id === 'cleanup' && (buildStatus === 'FAILED' || isFinishedLogStream)) {
         step.status = 'success';
       } else {
         step.status = 'pending';
