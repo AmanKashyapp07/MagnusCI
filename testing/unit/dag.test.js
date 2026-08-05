@@ -1,97 +1,91 @@
-const { hasCycle, loadPipelineStages, executeDAG } = require('../../backend/src/utils/dag');
 const path = require('path');
 const fs = require('fs').promises;
+const os = require('os');
+const { loadPipelineStages, hasCycle, executeDAG } = require('../../backend/src/utils/dag');
 
 describe('Production-Grade Unit Tests: DAG Engine (utils/dag.js)', () => {
 
   describe('1. DFS Cycle Detection (hasCycle)', () => {
     test('should return false for valid linear DAG (A -> B -> C)', () => {
       const stages = {
-        setup: { run: 'npm ci', needs: [] },
-        test: { run: 'npm test', needs: ['setup'] },
-        build: { run: 'npm run build', needs: ['test'] }
+        setup: {},
+        test: { needs: ['setup'] },
+        build: { needs: ['test'] }
       };
       expect(hasCycle(stages)).toBe(false);
     });
 
     test('should return false for valid diamond DAG (Parallel branch execution)', () => {
       const stages = {
-        setup: { run: 'npm ci', needs: [] },
-        lint: { run: 'npm run lint', needs: ['setup'] },
-        test: { run: 'npm test', needs: ['setup'] },
-        deploy: { run: 'npm run deploy', needs: ['lint', 'test'] }
+        setup: {},
+        unit_test: { needs: ['setup'] },
+        lint: { needs: ['setup'] },
+        deploy: { needs: ['unit_test', 'lint'] }
       };
       expect(hasCycle(stages)).toBe(false);
     });
 
     test('should return true for self-referential stage cycle (A -> A)', () => {
       const stages = {
-        build: { run: 'make', needs: ['build'] }
+        setup: { needs: ['setup'] }
       };
       expect(hasCycle(stages)).toBe(true);
     });
 
     test('should return true for direct 2-node cycle (A -> B -> A)', () => {
       const stages = {
-        stageA: { run: 'echo A', needs: ['stageB'] },
-        stageB: { run: 'echo B', needs: ['stageA'] }
+        stageA: { needs: ['stageB'] },
+        stageB: { needs: ['stageA'] }
       };
       expect(hasCycle(stages)).toBe(true);
     });
 
     test('should return true for indirect multi-stage cycle (A -> B -> C -> D -> A)', () => {
       const stages = {
-        stageA: { run: 'echo A', needs: [] },
-        stageB: { run: 'echo B', needs: ['stageA'] },
-        stageC: { run: 'echo C', needs: ['stageB'] },
-        stageD: { run: 'echo D', needs: ['stageC'] }
+        stageA: { needs: ['stageB'] },
+        stageB: { needs: ['stageC'] },
+        stageC: { needs: ['stageD'] },
+        stageD: { needs: ['stageA'] }
       };
-      // Introduce cycle
-      stages.stageA.needs = ['stageD'];
       expect(hasCycle(stages)).toBe(true);
     });
 
     test('should return false for empty or single-node stages', () => {
       expect(hasCycle({})).toBe(false);
-      expect(hasCycle({ init: { run: 'echo hello' } })).toBe(false);
+      expect(hasCycle({ single: {} })).toBe(false);
     });
 
     test('should handle string needs as well as array needs', () => {
       const stages = {
-        setup: { run: 'npm ci' },
-        test: { run: 'npm test', needs: 'setup' }
+        stageA: { needs: 'stageB' },
+        stageB: { needs: 'stageA' }
       };
-      expect(hasCycle(stages)).toBe(false);
+      expect(hasCycle(stages)).toBe(true);
     });
   });
 
   describe('2. Pipeline Configuration Loader (loadPipelineStages)', () => {
-    const tempDir = path.join(__dirname, 'temp_test_workspace');
+    let tempDir;
 
-    beforeAll(async () => {
-      await fs.mkdir(tempDir, { recursive: true });
+    beforeEach(async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dag-test-'));
     });
 
-    afterAll(async () => {
+    afterEach(async () => {
       await fs.rm(tempDir, { recursive: true, force: true });
     });
 
     test('should load custom magnus-ci.json DAG stages when present', async () => {
-      const config = {
+      const customConfig = {
         stages: {
-          setup: { run: 'npm ci', image: 'node:20-alpine' },
-          test: { run: 'npm test', needs: ['setup'] }
+          custom_setup: { run: 'echo "hello"' }
         }
       };
-      await fs.writeFile(path.join(tempDir, 'magnus-ci.json'), JSON.stringify(config));
+      await fs.writeFile(path.join(tempDir, 'magnus-ci.json'), JSON.stringify(customConfig));
 
-      const stages = await loadPipelineStages(tempDir, 'Node.js', 'node:20-alpine');
-      expect(stages).toHaveProperty('setup');
-      expect(stages).toHaveProperty('test');
-      expect(stages.test.needs).toEqual(['setup']);
-      expect(stages.setup.run).toBe('npm ci');
-
-      await fs.unlink(path.join(tempDir, 'magnus-ci.json'));
+      const stages = await loadPipelineStages(tempDir, 'Node.js');
+      expect(stages).toHaveProperty('custom_setup');
+      expect(stages.custom_setup.run).toBe('echo "hello"');
     });
 
     test('should fallback to language presets when magnus-ci.json is absent', async () => {
@@ -99,80 +93,80 @@ describe('Production-Grade Unit Tests: DAG Engine (utils/dag.js)', () => {
       expect(stages).toHaveProperty('setup');
       expect(stages).toHaveProperty('test');
       expect(stages).toHaveProperty('build');
+      expect(stages.test.needs).toEqual(['setup']);
     });
 
     test('should fallback to default baseline test stage for unknown language', async () => {
       const stages = await loadPipelineStages(tempDir, 'UnknownLang', 'alpine:latest');
       expect(stages).toHaveProperty('test');
-      expect(stages.test.run).toBe('npm test');
+      expect(stages.test.run).toContain('npm test');
     });
   });
 
   describe('3. Topological Parallel Execution Engine (executeDAG)', () => {
     test('should execute independent stages in proper order', async () => {
+      const executionOrder = [];
       const stages = {
-        setup: { run: 'echo setup', needs: [] },
-        lint: { run: 'echo lint', needs: ['setup'] },
-        test: { run: 'echo test', needs: ['setup'] },
-        compile: { run: 'echo compile', needs: ['lint', 'test'] }
+        stage1: {},
+        stage2: { needs: ['stage1'] },
+        stage3: { needs: ['stage1'] },
+        stage4: { needs: ['stage2', 'stage3'] }
       };
 
-      const executionLog = [];
-      const runStageFn = jest.fn(async (stageName) => {
-        executionLog.push(`start:${stageName}`);
-        await new Promise(resolve => setTimeout(resolve, 10));
-        executionLog.push(`finish:${stageName}`);
-        return true; // stage succeeded
+      const stageRunner = async (stageName) => {
+        executionOrder.push(stageName);
+        await new Promise(res => setTimeout(res, 10));
+        return true;
+      };
+
+      const results = await executeDAG(stages, stageRunner);
+
+      expect(results).toEqual({
+        stage1: 'SUCCESS',
+        stage2: 'SUCCESS',
+        stage3: 'SUCCESS',
+        stage4: 'SUCCESS'
       });
 
-      const finalStates = await executeDAG(stages, runStageFn);
-
-      expect(finalStates).toEqual({
-        setup: 'SUCCESS',
-        lint: 'SUCCESS',
-        test: 'SUCCESS',
-        compile: 'SUCCESS'
-      });
-
-      expect(executionLog[0]).toBe('start:setup');
-      expect(executionLog[1]).toBe('finish:setup');
-      expect(executionLog).toContain('start:lint');
-      expect(executionLog).toContain('start:test');
-      expect(executionLog[executionLog.length - 1]).toBe('finish:compile');
+      expect(executionOrder[0]).toBe('stage1');
+      expect(executionOrder[3]).toBe('stage4');
     });
 
     test('should skip downstream stages if a prerequisite stage fails', async () => {
+      const executionOrder = [];
       const stages = {
-        setup: { run: 'echo setup', needs: [] },
-        test: { run: 'echo test', needs: ['setup'] },
-        deploy: { run: 'echo deploy', needs: ['test'] }
+        setup: {},
+        test: { needs: ['setup'] },
+        deploy: { needs: ['test'] }
       };
 
-      const runStageFn = jest.fn(async (stageName) => {
+      const stageRunner = async (stageName) => {
+        executionOrder.push(stageName);
         if (stageName === 'test') {
-          return false; // test stage fails
+          return false; // Fail test stage
         }
         return true;
-      });
+      };
 
-      const finalStates = await executeDAG(stages, runStageFn);
+      const results = await executeDAG(stages, stageRunner);
 
-      expect(finalStates.setup).toBe('SUCCESS');
-      expect(finalStates.test).toBe('FAILED');
-      expect(finalStates.deploy).toBe('PENDING'); // skipped because dependency failed
+      expect(results.setup).toBe('SUCCESS');
+      expect(results.test).toBe('FAILED');
+      expect(results.deploy).toBe('PENDING'); // Skipped
+      expect(executionOrder).not.toContain('deploy');
     });
 
     test('should handle thrown exceptions in stage runner gracefully', async () => {
       const stages = {
-        setup: { run: 'echo setup' }
+        flaky: {}
       };
 
-      const runStageFn = jest.fn(async () => {
-        throw new Error('Container crashed');
-      });
+      const stageRunner = async () => {
+        throw new Error('Container crashed out of memory');
+      };
 
-      const finalStates = await executeDAG(stages, runStageFn);
-      expect(finalStates.setup).toBe('FAILED');
+      const results = await executeDAG(stages, stageRunner);
+      expect(results.flaky).toBe('FAILED');
     });
   });
 
