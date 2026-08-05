@@ -11,7 +11,7 @@
 # 2. Integration Test Suite (Jest)
 # 3. Live E2E Deployment Suite (Jest + Supertest)
 # 4. Kubernetes Infrastructure Test Suite (K3s Pods & Volume Mounts)
-# 5. Playwright Browser E2E Rigorous Suite (Chromium 14/14)
+# 5. Playwright Browser E2E Suite (Chromium 23/23 tests)
 # 6. Local Project Pipeline Suite (/Users/amankashyap/Documents/tes)
 ###############################################################################
 
@@ -112,8 +112,8 @@ fi
 # STEP 5: Playwright Browser E2E Suite
 #------------------------------------------------------------------------------
 echo -e "\n${BOLD}${MAGENTA}[5/6] Running Playwright Browser E2E Suite (Chromium)...${RESET}"
-if npm --prefix "$TESTING_DIR" exec playwright test e2e/playwright-rigorous.spec.js; then
-    log_success "Playwright Browser E2E Suite Passed 100% (14/14 tests)."
+if npm --prefix "$TESTING_DIR" exec playwright test e2e/; then
+    log_success "Playwright Browser E2E Suite Passed 100%."
     PASSED_COUNT=$((PASSED_COUNT + 1))
 else
     log_error "Playwright Browser E2E Suite Failed."
