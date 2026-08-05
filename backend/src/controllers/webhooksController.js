@@ -1,7 +1,7 @@
-const pool = require('../db');
 const buildQueue = require('../queue');
 const logger = require('../utils/logger');
 const repoService = require('../services/repoService');
+const webhookRepository = require('../repositories/webhookRepository');
 
 class WebhooksController {
   async handleGithubWebhook(req, res, next) {
@@ -35,29 +35,20 @@ class WebhooksController {
       const normalizedUrl = repoService.normalizeUrl(repository.clone_url);
 
       let repoId;
-      const repoResult = await pool.query('SELECT id FROM repositories WHERE github_url = $1', [normalizedUrl]);
+      const existingRepoId = await webhookRepository.findRepositoryIdByGithubUrl(normalizedUrl);
 
-      if (repoResult.rows.length > 0) {
-        repoId = repoResult.rows[0].id;
+      if (existingRepoId) {
+        repoId = existingRepoId;
       } else {
-        const insertRepoResult = await pool.query(
-          'INSERT INTO repositories (name, github_url) VALUES ($1, $2) RETURNING id',
-          [repoName, normalizedUrl]
-        );
-        repoId = insertRepoResult.rows[0].id;
+        const repositoryRecord = await webhookRepository.createRepository(repoName, normalizedUrl);
+        repoId = repositoryRecord.id;
       }
 
-      await pool.query(
-        'INSERT INTO webhook_events (repository_id, event_type, payload) VALUES ($1, $2, $3)',
-        [repoId, eventType, JSON.stringify(payload)]
-      );
+      await webhookRepository.createWebhookEvent(repoId, eventType, payload);
 
-      const buildResult = await pool.query(
-        "INSERT INTO builds (repository_id, commit_hash, status) VALUES ($1, $2, 'PENDING') RETURNING id",
-        [repoId, commitHash]
-      );
+      const build = await webhookRepository.createPendingBuild(repoId, commitHash);
 
-      const buildId = buildResult.rows[0].id;
+      const buildId = build.id;
       const branchName = (payload.ref && payload.ref.startsWith('refs/heads/'))
         ? payload.ref.replace('refs/heads/', '')
         : 'main';

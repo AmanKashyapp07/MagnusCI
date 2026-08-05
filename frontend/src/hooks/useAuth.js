@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { API_BASE } from "../config/constants";
+import { createAuthenticatedRequest } from "../api/client";
+import { getCurrentUser, getGithubLoginUrl } from "../api/authApi";
 
 export function useAuth() {
   const [token, setToken] = useState(() => localStorage.getItem("token") || "");
@@ -23,17 +24,9 @@ export function useAuth() {
   }, []);
 
   const fetchWithAuth = useCallback(
-    async (url, options = {}) => {
-      const headers = {
-        ...options.headers,
-        Authorization: `Bearer ${token}`,
-      };
-      const res = await fetch(url, { ...options, headers });
-      if (res.status === 401 || res.status === 403) {
-        handleLogout();
-        throw new Error("Session expired. Please login again.");
-      }
-      return res;
+    async (path, options = {}) => {
+      const authRequest = createAuthenticatedRequest(token, handleLogout);
+      return authRequest(path, options);
     },
     [token, handleLogout]
   );
@@ -41,8 +34,7 @@ export function useAuth() {
   const fetchUser = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetchWithAuth(`${API_BASE}/auth/me`);
-      const data = await res.json();
+      const { res, data } = await getCurrentUser(fetchWithAuth);
       if (res.ok) {
         setUser(data);
       } else {
@@ -61,7 +53,7 @@ export function useAuth() {
   }, [token, fetchUser]);
 
   const initiateGithubLogin = () => {
-    window.location.href = `${API_BASE}/auth/github`;
+    window.location.href = getGithubLoginUrl();
   };
 
   return {

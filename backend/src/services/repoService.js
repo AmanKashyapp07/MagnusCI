@@ -66,6 +66,21 @@ class RepoService {
     return repo;
   }
 
+  async syncWebhook(repoId, userId) {
+    const repoResult = await pool.query(
+      'SELECT id, github_url FROM repositories WHERE id = $1 AND user_id = $2',
+      [repoId, userId]
+    );
+    if (repoResult.rowCount === 0) {
+      return null;
+    }
+    const repoInfo = this.parseRepoUrl(repoResult.rows[0].github_url);
+    if (repoInfo) {
+      await this.registerGitHubWebhook(repoInfo.owner, repoInfo.repo, userId);
+    }
+    return repoResult.rows[0];
+  }
+
   async deleteRepository(repoId, userId) {
     const repoResult = await pool.query(
       'SELECT id, github_url FROM repositories WHERE id = $1 AND user_id = $2',

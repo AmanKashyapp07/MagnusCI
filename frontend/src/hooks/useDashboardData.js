@@ -1,5 +1,12 @@
 import { useState, useCallback, useEffect } from "react";
-import { API_BASE, HEALTH_POLL_INTERVAL_MS } from "../config/constants";
+import { HEALTH_POLL_INTERVAL_MS } from "../config/constants";
+import { getHealth } from "../api/healthApi";
+import {
+  deleteRepository,
+  getRepositories,
+  registerRepository,
+} from "../api/repositoriesApi";
+import { getBuilds } from "../api/buildsApi";
 
 export function useDashboardData(token, fetchWithAuth, showToast) {
   const [dbStatus, setDbStatus] = useState("checking");
@@ -15,8 +22,7 @@ export function useDashboardData(token, fetchWithAuth, showToast) {
 
   const checkHealth = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/health`);
-      const data = await res.json();
+      const data = await getHealth();
       if (data.status === "healthy") {
         setDbStatus("connected");
         setDbTime(data.time);
@@ -31,8 +37,7 @@ export function useDashboardData(token, fetchWithAuth, showToast) {
   const fetchRepos = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetchWithAuth(`${API_BASE}/repositories`);
-      const data = await res.json();
+      const data = await getRepositories(fetchWithAuth);
       if (Array.isArray(data)) {
         setRepos(data);
       }
@@ -44,8 +49,7 @@ export function useDashboardData(token, fetchWithAuth, showToast) {
   const fetchBuilds = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetchWithAuth(`${API_BASE}/builds`);
-      const data = await res.json();
+      const data = await getBuilds(fetchWithAuth);
       if (Array.isArray(data)) {
         setBuilds(data);
       }
@@ -86,13 +90,11 @@ export function useDashboardData(token, fetchWithAuth, showToast) {
     setMessage("");
 
     try {
-      const res = await fetchWithAuth(`${API_BASE}/repositories`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: repoName, github_url: repoUrl }),
+      const { res, data } = await registerRepository(fetchWithAuth, {
+        name: repoName,
+        githubUrl: repoUrl,
       });
 
-      const data = await res.json();
       if (res.ok) {
         setMessage("Repository registered successfully!");
         showToast("Repository registered successfully!", "success");
@@ -114,9 +116,7 @@ export function useDashboardData(token, fetchWithAuth, showToast) {
 
   const executeDeleteRepo = async (repoId, setSelectedRepo) => {
     try {
-      const res = await fetchWithAuth(`${API_BASE}/repositories/${repoId}`, {
-        method: "DELETE"
-      });
+      const { res, data } = await deleteRepository(fetchWithAuth, repoId);
       if (res.ok) {
         showToast("Workspace and corresponding execution history deleted successfully.", "success");
         if (setSelectedRepo) {
@@ -126,10 +126,9 @@ export function useDashboardData(token, fetchWithAuth, showToast) {
         fetchBuilds();
       } else {
         let errorMsg = "Failed to delete workspace.";
-        try {
-          const data = await res.json();
+        if (data) {
           errorMsg = data.error || errorMsg;
-        } catch {}
+        }
         showToast(errorMsg, "error");
       }
     } catch {

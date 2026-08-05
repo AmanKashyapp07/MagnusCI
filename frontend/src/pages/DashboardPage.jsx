@@ -7,7 +7,8 @@ import { useDashboardData } from "../hooks/useDashboardData";
 import { useBuildLogs } from "../hooks/useBuildLogs";
 
 // Config & Utilities
-import { API_BASE, getStatusBadgeClass } from "../config/constants";
+import { getStatusBadgeClass } from "../config/constants";
+import { getArtifactUrl } from "../api/artifactsApi";
 
 // Components
 import Header from "../components/Header";
@@ -169,7 +170,7 @@ export default function DashboardPage({ token, user, fetchWithAuth, handleLogout
         handleCopyLogs={handleCopyLogs}
         copied={copied}
         getStatusBadgeClass={getStatusBadgeClass}
-        API_BASE={API_BASE}
+        getArtifactUrl={getArtifactUrl}
       />
 
       {/* Toast Notification Overlay */}

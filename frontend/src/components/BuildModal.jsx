@@ -48,7 +48,7 @@ export default function BuildModal({
   handleCopyLogs,
   copied,
   getStatusBadgeClass,
-  API_BASE
+  getArtifactUrl
 }) {
   if (!selectedBuild) return null;
 
@@ -149,7 +149,7 @@ export default function BuildModal({
               art.type === 'file' ? (
                 <a
                   key={idx}
-                  href={`${API_BASE.replace('/api', '')}${art.path}`}
+                  href={getArtifactUrl(art.path)}
                   download
                   className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all shadow-sm"
                 >
@@ -159,7 +159,7 @@ export default function BuildModal({
               ) : (
                 <a
                   key={idx}
-                  href={`${API_BASE.replace('/api', '')}${art.path}`}
+                  href={getArtifactUrl(art.path)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all shadow-sm"

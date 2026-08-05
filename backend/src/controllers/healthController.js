@@ -1,13 +1,13 @@
-const pool = require('../db');
+const healthRepository = require('../repositories/healthRepository');
 
 class HealthController {
   async getHealth(req, res, next) {
     try {
-      const result = await pool.query('SELECT NOW()');
+      const databaseTime = await healthRepository.getDatabaseTime();
       res.json({
         status: 'healthy',
         database: 'connected',
-        time: result.rows[0].now
+        time: databaseTime
       });
     } catch (error) {
       res.status(500).json({

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { API_BASE, LOGS_POLL_INTERVAL_MS } from "../config/constants";
+import { LOGS_POLL_INTERVAL_MS } from "../config/constants";
+import { getBuildLogs } from "../api/buildsApi";
 import { stripAnsi } from "../utils/logParser";
 
 export function useBuildLogs(token, fetchWithAuth, fetchBuilds, builds) {
@@ -13,9 +14,8 @@ export function useBuildLogs(token, fetchWithAuth, fetchBuilds, builds) {
     if (!token) return;
     if (!silent) setIsLogsLoading(true);
     try {
-      const res = await fetchWithAuth(`${API_BASE}/builds/${buildId}/logs`);
-      if (res.ok) {
-        const data = await res.json();
+      const { res, data } = await getBuildLogs(fetchWithAuth, buildId);
+      if (res.ok && data) {
         setLogs(data.logs || "");
         if (data.build) {
           setSelectedBuild(prev => {
