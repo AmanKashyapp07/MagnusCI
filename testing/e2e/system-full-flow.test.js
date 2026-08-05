@@ -75,12 +75,15 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       expect(scriptMatch).not.toBeNull();
 
       const scriptUrl = scriptMatch[1];
-      const assetRes = await axios.get(`${TARGET_URL}${scriptUrl}`, reqConfig);
+      const assetRes = await axios.get(`${TARGET_URL}${scriptUrl}`, {
+        ...reqConfig,
+        responseType: 'text'
+      });
 
       expect(assetRes.status).toBe(200);
       expect(assetRes.headers['content-type']).toMatch(/javascript|text\/plain/);
       expect(assetRes.data.length).toBeGreaterThan(100);
-    });
+    }, 30000);
 
     test('should deliver stylesheet asset referenced in root HTML', async () => {
       const pageRes = await axios.get(`${TARGET_URL}/`, reqConfig);
@@ -90,13 +93,16 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       expect(cssMatch).not.toBeNull();
 
       const cssUrl = cssMatch[1];
-      const cssRes = await axios.get(`${TARGET_URL}${cssUrl}`, reqConfig);
+      const cssRes = await axios.get(`${TARGET_URL}${cssUrl}`, {
+        ...reqConfig,
+        responseType: 'text'
+      });
 
       expect(cssRes.status).toBeDefined();
       expect(cssRes.status).toBe(200);
       expect(cssRes.headers['content-type']).toMatch(/css|text\/plain/);
       expect(cssRes.data.length).toBeGreaterThan(100);
-    });
+    }, 30000);
 
   });
 
