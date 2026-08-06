@@ -7,16 +7,18 @@ export function useAuth() {
     const params = new URLSearchParams(window.location.search);
     const redirectToken = params.get("token");
     if (redirectToken) {
+      localStorage.setItem("magnus_ci_token", redirectToken);
       localStorage.setItem("token", redirectToken);
       window.history.replaceState({}, document.title, window.location.pathname);
       return redirectToken;
     }
-    return localStorage.getItem("token") || "";
+    return localStorage.getItem("magnus_ci_token") || localStorage.getItem("token") || "";
   });
 
   const [user, setUser] = useState(null);
 
   const handleLogout = useCallback(() => {
+    localStorage.removeItem("magnus_ci_token");
     localStorage.removeItem("token");
     setToken("");
     setUser(null);

@@ -32,7 +32,7 @@ spec:
             - name: POSTGRES_DB
               value: "ci_cd_engine"
             - name: FRONTEND_URL
-              value: "http://129.154.39.198/ci"
+              value: "http://129.154.39.198/ci/"
             - name: JWT_SECRET
               value: "aman123"
             # Note: Secrets should ideally use kubernetes Secret resources.

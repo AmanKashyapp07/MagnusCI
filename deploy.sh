@@ -1,139 +1,170 @@
 #!/usr/bin/env bash
+# =============================================================================
+# MagnusCI Zero-Downtime Kubernetes Deployment Manager
+# Target Server: Oracle Cloud VM (129.154.39.198)
+# Stack: Node.js / BullMQ / Redis / PostgreSQL / Docker / K3s / Nginx
+# =============================================================================
+set -euo pipefail
 
-###############################################################################
-# Production Zero-Downtime Kubernetes Deployment Script
-#
-# Target Server: Oracle Cloud VM (129.154.39.198) - NexusIDE VM
-# Kubernetes Engine: K3s
-#
-# Workflows Executed:
-# 1. SSH authentication check
-# 2. Local workspace git status verification
-# 3. Remote git sync (git fetch & git reset)
-# 4. Injects production environment secrets from server backend/.env
-# 5. Container image build (amankashyap07/magnus-api:latest)
-# 6. Container import into k3s image runtime
-# 7. Rollout restart for magnus-api and magnus-worker deployments
-# 8. Pod readiness health verification
-###############################################################################
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_BASE="${LOCAL_BASE:-$SCRIPT_DIR}"
+SSH_KEY="${SSH_KEY:-/Users/amankashyap/Documents/NexusIDE/ssh-key-2022-12-01.key}"
+REMOTE_USER="ubuntu"
+REMOTE_IP="129.154.39.198"
+REMOTE_DIR="/home/ubuntu/ci-cd-engine"
+IMAGE_NAME="amankashyap07/magnus-api:latest"
 
-set -e # Exit immediately on error
-
-# Colors & Formatting
+# ─── Formatting ───────────────────────────────────────────────────────────────
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
 RED='\033[0;31m'
-YELLOW='\033[0;33m'
+YELLOW='\033[1;33m'
 MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
-log_info() {
-    echo -e "${CYAN}${BOLD}[INFO]${RESET} $1"
-}
-
-log_success() {
-    echo -e "${GREEN}${BOLD}[SUCCESS]${RESET} $1"
-}
-
-log_warn() {
-    echo -e "${YELLOW}${BOLD}[WARNING]${RESET} $1"
-}
-
-log_error() {
-    echo -e "${RED}${BOLD}[ERROR]${RESET} $1"
-}
+log_info()    { echo -e "${CYAN}${BOLD}[INFO]${RESET} $1"; }
+log_success() { echo -e "${GREEN}${BOLD}[SUCCESS]${RESET} $1"; }
+log_warn()    { echo -e "${YELLOW}${BOLD}[WARNING]${RESET} $1"; }
+log_error()   { echo -e "${RED}${BOLD}[ERROR]${RESET} $1"; }
+section()     { echo -e "\n${YELLOW}${BOLD}══ $1 ══${RESET}"; }
 
 echo -e "${MAGENTA}${BOLD}"
 echo "========================================================================"
-echo " MagnusCI Kubernetes Zero-Downtime Deployment Manager"
+echo " MagnusCI Production Kubernetes Deployment System"
 echo "========================================================================"
 echo -e "${RESET}"
 
-SSH_KEY="/Users/amankashyap/Documents/NexusIDE/ssh-key-2022-12-01.key"
-REMOTE_USER="ubuntu"
-REMOTE_IP="129.154.39.198"
-REMOTE_DIR="/home/ubuntu/ci-cd-engine"
+# ─── 0. Prerequisite Checks ───────────────────────────────────────────────────
+section "0/5  Verifying Local & Remote Prerequisites"
 
-# Step 1: Verify local SSH Key existence
 if [ ! -f "$SSH_KEY" ]; then
     log_error "SSH key file '$SSH_KEY' not found."
     exit 1
 fi
-
 chmod 600 "$SSH_KEY"
 
-# Step 2: Test SSH Connectivity
-log_info "Testing SSH connectivity to Oracle Cloud VM (${REMOTE_USER}@${REMOTE_IP})..."
-if ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${REMOTE_USER}@${REMOTE_IP}" "echo Connected" >/dev/null 2>&1; then
-    log_success "SSH connection established successfully."
-else
-    log_error "Failed to connect to ${REMOTE_USER}@${REMOTE_IP}. Please check network or VM state."
+for cmd in ssh rsync docker; do
+    if ! command -v $cmd &>/dev/null; then
+        log_error "Required CLI tool '$cmd' is missing locally."
+        exit 1
+    fi
+done
+
+log_info "Testing SSH connectivity to (${REMOTE_USER}@${REMOTE_IP})..."
+if ! ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${REMOTE_USER}@${REMOTE_IP}" "echo SSH_CONNECTED" >/dev/null 2>&1; then
+    log_error "Failed to establish SSH connection to ${REMOTE_USER}@${REMOTE_IP}."
     exit 1
 fi
+log_success "SSH Connection Verified."
 
-# Step 3: Local Git Status Check
-log_info "Verifying local Git repository state..."
-if [ -n "$(git status --porcelain)" ]; then
-    log_warn "Uncommitted changes detected in local repository."
-fi
+# ─── 1. Sync Local Workspace to VM ───────────────────────────────────────────
+section "1/5  Syncing Local Source to Deployment Remote"
+log_info "Syncing local repository state directly to remote workspace..."
 
-# Step 4: Execute Remote K8s Build & Deployment Sequence
-log_info "Initiating remote Kubernetes build and zero-downtime rollout..."
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "${REMOTE_USER}@${REMOTE_IP}" "mkdir -p ${REMOTE_DIR}"
+
+rsync -avz --delete \
+    -e "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no" \
+    --exclude 'node_modules' \
+    --exclude '.git' \
+    --exclude 'dist' \
+    --exclude '.env' \
+    --exclude 'test-results' \
+    --exclude 'playwright-report' \
+    "${LOCAL_BASE}/" \
+    "${REMOTE_USER}@${REMOTE_IP}:${REMOTE_DIR}/"
+
+log_success "Codebase synchronized cleanly."
+
+# ─── 2. Hydrate Manifests & Build Image ───────────────────────────────────────
+section "2/5  Hydrating Manifest Secrets & Compiling Container Image"
 
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "${REMOTE_USER}@${REMOTE_IP}" "bash -s" << EOF
-set -e
-mkdir -p ${REMOTE_DIR}
+set -euo pipefail
 cd ${REMOTE_DIR}
 
-echo '[REMOTE] Fetching latest repository commits...'
-if [ ! -d ".git" ]; then
-    echo '[REMOTE] Initializing remote git workspace...'
-    git init
-    git remote add origin https://github.com/AmanKashyapp07/MagnusCI.git || true
-else
-    git remote set-url origin https://github.com/AmanKashyapp07/MagnusCI.git || true
-fi
-git fetch origin main
-git reset --hard origin/main
+echo '[REMOTE] Preparing hydrated manifest build workspace...'
+HYDRATED_DIR="/tmp/magnus-k8s-hydrated"
+rm -rf "\$HYDRATED_DIR"
+mkdir -p "\$HYDRATED_DIR"
+cp -r k8s/* "\$HYDRATED_DIR/"
 
-echo '[REMOTE] Injecting production secrets into k8s manifests...'
 if [ -f "backend/.env" ]; then
-    export \$(grep -v '^#' backend/.env | xargs)
-    if [ -n "\$GITHUB_CLIENT_SECRET" ]; then
-        sed -i "s/your_github_client_secret_here/\${GITHUB_CLIENT_SECRET}/g" k8s/magnus-api.yaml
+    echo '[REMOTE] Ingesting backend/.env production secrets into temporary manifests...'
+    set +e
+    GITHUB_CLIENT_SECRET_VAL=\$(grep '^GITHUB_CLIENT_SECRET=' backend/.env | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+    GITHUB_TOKEN_VAL=\$(grep '^GITHUB_TOKEN=' backend/.env | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+    set -e
+    
+    if [ -n "\${GITHUB_CLIENT_SECRET_VAL:-}" ]; then
+        sed -i "s|your_github_client_secret_here|\${GITHUB_CLIENT_SECRET_VAL}|g" "\$HYDRATED_DIR/magnus-api.yaml"
     fi
-    if [ -n "\$GITHUB_TOKEN" ]; then
-        sed -i "s/your_github_personal_access_token_here/\${GITHUB_TOKEN}/g" k8s/magnus-api.yaml
-        sed -i "s/your_github_personal_access_token_here/\${GITHUB_TOKEN}/g" k8s/magnus-worker.yaml
+    if [ -n "\${GITHUB_TOKEN_VAL:-}" ]; then
+        sed -i "s|your_github_personal_access_token_here|\${GITHUB_TOKEN_VAL}|g" "\$HYDRATED_DIR/magnus-api.yaml"
+        sed -i "s|your_github_personal_access_token_here|\${GITHUB_TOKEN_VAL}|g" "\$HYDRATED_DIR/magnus-worker.yaml"
     fi
 fi
 
-echo '[REMOTE] Building production Docker container image (magnus-api)...'
-sudo docker build --no-cache -t amankashyap07/magnus-api:latest -f backend/Dockerfile .
+echo '[REMOTE] Building Docker image (${IMAGE_NAME})...'
+sudo docker build --no-cache -t ${IMAGE_NAME} -f backend/Dockerfile .
 
-echo '[REMOTE] Importing Docker image into k3s container runtime...'
-sudo docker save amankashyap07/magnus-api:latest | sudo k3s ctr image import -
+echo '[REMOTE] Importing Docker image into K3s container runtime...'
+sudo docker save ${IMAGE_NAME} | sudo k3s ctr image import -
 
-echo '[REMOTE] Applying Kubernetes manifests...'
-sudo k3s kubectl apply -f k8s/
-
-echo '[REMOTE] Initiating zero-downtime rollout restart...'
-sudo k3s kubectl rollout restart deployment magnus-api || true
-sudo k3s kubectl rollout restart deployment magnus-worker || true
-
-echo '[REMOTE] Waiting for pod rollout completion...'
-sudo k3s kubectl rollout status deployment magnus-api --timeout=60s || true
-sudo k3s kubectl rollout status deployment magnus-worker --timeout=60s || true
-
-echo '[REMOTE] Ensuring system permissions & Nginx routing...'
-sudo chmod 755 /home/ubuntu
-sudo systemctl reload nginx || true
-
-echo '[REMOTE] Verified Kubernetes Cluster Pod Status:'
-sudo k3s kubectl get pods -o wide
+echo '[REMOTE] Cleaning up dangling Docker image layers...'
+sudo docker image prune -f || true
 EOF
 
-log_success "Deployment completed successfully!"
-log_success "🚀 MagnusCI: http://${REMOTE_IP}"
+log_success "Image compiled and loaded into K3s runtime."
+
+# ─── 3. Apply Kubernetes Manifests & Rollout ─────────────────────────────────
+section "3/5  Applying K8s Manifests & Executing Zero-Downtime Rollout"
+
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "${REMOTE_USER}@${REMOTE_IP}" "bash -s" << EOF
+set -euo pipefail
+
+echo '[REMOTE] Applying hydrated Kubernetes manifests...'
+sudo k3s kubectl apply -f /tmp/magnus-k8s-hydrated/
+
+echo '[REMOTE] Initiating zero-downtime deployment restart...'
+sudo k3s kubectl rollout restart deployment magnus-api
+sudo k3s kubectl rollout restart deployment magnus-worker
+
+echo '[REMOTE] Waiting for deployment readiness...'
+sudo k3s kubectl rollout status deployment magnus-api --timeout=90s
+sudo k3s kubectl rollout status deployment magnus-worker --timeout=90s
+
+rm -rf /tmp/magnus-k8s-hydrated
+EOF
+
+log_success "Kubernetes rollout verified cleanly."
+
+# ─── 4. System Permissions & Routing ──────────────────────────────────────────
+section "4/5  Reloading System Routing Infrastructure"
+
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "${REMOTE_USER}@${REMOTE_IP}" "bash -s" << EOF
+set -euo pipefail
+sudo chmod 755 /home/ubuntu
+sudo nginx -t
+sudo systemctl reload nginx
+EOF
+
+log_success "Nginx reverse proxy reloaded."
+
+# ─── 5. Production Health Verification ────────────────────────────────────────
+section "5/5  Production Health Verification"
+
+HEALTH_STATUS=$(ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "${REMOTE_USER}@${REMOTE_IP}" "curl -s -o /dev/null -w '%{http_code}' http://localhost/ci/ || true")
+
+if [ "$HEALTH_STATUS" -eq 200 ] || [ "$HEALTH_STATUS" -eq 301 ] || [ "$HEALTH_STATUS" -eq 302 ]; then
+    log_success "MagnusCI K8s Service is online and responding via Nginx (HTTP $HEALTH_STATUS)."
+else
+    log_warn "MagnusCI Service returned status HTTP $HEALTH_STATUS. Verify pod logs using: sudo k3s kubectl logs -l app=magnus-api"
+fi
+
+echo ""
+log_success "MagnusCI Deployment Manager Finished Successfully!"
+log_success "🚀 MagnusCI: http://${REMOTE_IP}/ci/"
 log_success "💻 NexusIDE: http://${REMOTE_IP}/ide/"
+echo ""

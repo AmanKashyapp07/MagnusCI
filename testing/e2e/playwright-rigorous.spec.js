@@ -118,7 +118,7 @@ test.describe('Ultra-Rigorous E2E Suite: Production End-to-End System Verificati
       await page.goto(`${LIVE_URL}/?token=${sampleToken}`);
 
       // Verify token was stored in localStorage
-      const storedToken = await page.evaluate(() => localStorage.getItem('token'));
+      const storedToken = await page.evaluate(() => localStorage.getItem('magnus_ci_token') || localStorage.getItem('token'));
       expect(storedToken).toBe(sampleToken);
 
       // Verify user lands on /dashboard
