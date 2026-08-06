@@ -10,8 +10,7 @@ spec:
         - magnus-ci.online
       secretName: magnus-ci-tls
   rules:
-    - host: magnus-ci.online
-      http:
+    - http:
         paths:
           - path: /
             pathType: Prefix

@@ -11,7 +11,10 @@ module.exports = defineConfig({
   workers: 1,
   reporter: [['html', { open: 'never' }], ['list']],
   use: {
-    baseURL: process.env.TEST_TARGET_URL || 'http://129.154.39.198:30501',
+    baseURL: process.env.TEST_TARGET_URL || 'http://129.154.39.198',
+    extraHTTPHeaders: {
+      'Host': 'magnus-ci.online'
+    },
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },

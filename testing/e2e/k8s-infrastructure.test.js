@@ -1,7 +1,7 @@
 const { execSync } = require('child_process');
 
-const SSH_HOST = 'azureuser@4.145.89.253';
-const SSH_KEY = 'magnus-ci-server_key.pem';
+const SSH_HOST = process.env.SSH_HOST || 'ubuntu@129.154.39.198';
+const SSH_KEY = process.env.SSH_KEY || '/Users/amankashyap/Documents/NexusIDE/ssh-key-2022-12-01.key';
 const SSH_CMD = `ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${SSH_HOST}`;
 
 describe('Production-Grade Kubernetes Infrastructure Test Suite', () => {
@@ -12,7 +12,7 @@ describe('Production-Grade Kubernetes Infrastructure Test Suite', () => {
       encoding: 'utf8'
     });
 
-    expect(output).toContain('magnus-ci-server');
+    expect(output).toContain('instance-20221201-1950');
     expect(output).toContain('Ready');
   });
 

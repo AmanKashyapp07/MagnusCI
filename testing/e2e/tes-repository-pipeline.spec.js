@@ -4,7 +4,7 @@ const fs = require('fs');
 const { execSync } = require('child_process');
 
 const TES_REPO_PATH = '/Users/amankashyap/Documents/tes';
-const TARGET_URL = process.env.BASE_URL || 'http://129.154.39.198:30501';
+const TARGET_URL = process.env.BASE_URL || 'http://129.154.39.198';
 
 test.describe('Realistic E2E Test Suite: Local Repository Pipeline (/Users/amankashyap/Documents/tes)', () => {
 

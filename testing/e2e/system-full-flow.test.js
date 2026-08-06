@@ -5,9 +5,9 @@ const fs = require('fs').promises;
 
 describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', () => {
 
-  const TARGET_URL = process.env.DEPLOYED_URL || 'http://129.154.39.198:30501';
+  const TARGET_URL = process.env.DEPLOYED_URL || 'http://129.154.39.198';
   const reqConfig = {
-    headers: { 'User-Agent': 'MagnusCI-TestRunner/1.0' },
+    headers: { 'User-Agent': 'MagnusCI-TestRunner/1.0', 'Host': 'magnus-ci.online' },
     timeout: 10000
   };
 

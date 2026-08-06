@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { execSync } = require('child_process');
 const crypto = require('crypto');
 
-const LIVE_URL = process.env.TEST_TARGET_URL || 'http://129.154.39.198:30501';
+const LIVE_URL = process.env.TEST_TARGET_URL || 'http://129.154.39.198';
 const TEST_REPO_PATH = '/Users/amankashyap/Documents/tes';
 
 test.describe('Production-Grade Playwright E2E Suite: MagnusCI Live System Verification', () => {
