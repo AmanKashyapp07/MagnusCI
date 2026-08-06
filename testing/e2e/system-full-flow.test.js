@@ -71,7 +71,7 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       const pageRes = await axios.get(`${TARGET_URL}/`, reqConfig);
       expect(pageRes.status).toBe(200);
 
-      const scriptMatch = pageRes.data.match(/src="(\/assets\/[^"]+\.js)"/);
+      const scriptMatch = pageRes.data.match(/src="(\/(?:ci\/)?assets\/[^"]+\.js)"/);
       expect(scriptMatch).not.toBeNull();
 
       
@@ -90,7 +90,7 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       const pageRes = await axios.get(`${TARGET_URL}/`, reqConfig);
       expect(pageRes.status).toBe(200);
 
-      const cssMatch = pageRes.data.match(/href="(\/assets\/[^"]+\.css)"/);
+      const cssMatch = pageRes.data.match(/href="(\/(?:ci\/)?assets\/[^"]+\.css)"/);
       expect(cssMatch).not.toBeNull();
 
       const cssUrl = cssMatch[1];

@@ -110,7 +110,7 @@ if [ -f "backend/.env" ]; then
 fi
 
 echo '[REMOTE] Building production Docker container image (magnus-api)...'
-sudo docker build -t amankashyap07/magnus-api:latest -f backend/Dockerfile .
+sudo docker build --no-cache -t amankashyap07/magnus-api:latest -f backend/Dockerfile .
 
 echo '[REMOTE] Importing Docker image into k3s container runtime...'
 sudo docker save amankashyap07/magnus-api:latest | sudo k3s ctr image import -
