@@ -47,7 +47,11 @@ function cleanLogLine(line) {
   // Remove the `[HH:MM:SS]` time prefix and `[STAGE]` tags from the start of the line for UI cleanliness
   let cleanLine = line.replace(/^(?:\u001b\[[0-9;]*m)?\[\d{2}:\d{2}:\d{2}\](?:\u001b\[[0-9;]*m)?\s*/, '');
   cleanLine = cleanLine.replace(/^(?:\u001b\[[0-9;]*m)?\[[A-Z0-9_-]+\](?:\u001b\[[0-9;]*m)?\s*/i, '');
-  return cleanLine;
+  
+  // Strip all emojis and symbol icons for professional enterprise output
+  cleanLine = cleanLine.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2300}-\u{23FF}✔❌✅⚡🚀✨🔒🐳📦🛠️]/gu, '');
+  
+  return cleanLine.replace(/\s+/g, ' ').trimStart();
 }
 
 function parseLogsIntoSteps(rawLogs, buildStatus) {

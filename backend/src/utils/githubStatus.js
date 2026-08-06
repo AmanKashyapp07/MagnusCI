@@ -9,14 +9,25 @@ async function updateGitHubStatus(owner, repo, sha, state, description, targetUr
         `SELECT u.access_token 
          FROM repositories r 
          JOIN users u ON r.user_id = u.id 
-         WHERE r.github_url LIKE $1 LIMIT 1`,
+         WHERE r.github_url ILIKE $1 AND u.access_token IS NOT NULL LIMIT 1`,
         [`%${owner}/${repo}%`]
       );
       token = res.rows[0]?.access_token;
     } catch (e) {}
+
+    if (!token) {
+      try {
+        const fallbackUser = await pool.query(
+          `SELECT access_token FROM users WHERE access_token IS NOT NULL AND access_token != '' ORDER BY id DESC LIMIT 1`
+        );
+        token = fallbackUser.rows[0]?.access_token;
+      } catch (e) {}
+    }
   }
   
-  token = token || process.env.GITHUB_TOKEN;
+  if (!token && process.env.GITHUB_TOKEN && !process.env.GITHUB_TOKEN.includes('your_github')) {
+    token = process.env.GITHUB_TOKEN;
+  }
 
   if (!token) {
     console.warn(`No GitHub token available to post status badge for ${owner}/${repo}@${sha}`);

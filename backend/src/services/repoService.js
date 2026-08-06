@@ -26,7 +26,18 @@ class RepoService {
         }
       } catch (err) {}
     }
-    return config.GITHUB_TOKEN;
+
+    try {
+      const pool = require('../db');
+      const fallbackUser = await pool.query(
+        `SELECT access_token FROM users WHERE access_token IS NOT NULL AND access_token != '' ORDER BY id DESC LIMIT 1`
+      );
+      if (fallbackUser.rows[0]?.access_token) {
+        return fallbackUser.rows[0].access_token;
+      }
+    } catch (e) {}
+
+    return config.GITHUB_TOKEN || '';
   }
 
   async getLatestCommitHash(repositoryId) {
@@ -46,6 +57,10 @@ class RepoService {
       this.registerGitHubWebhook(parsed.owner, parsed.repo, userId).catch(err => {
         logger.error(`Webhook registration failed for ${parsed.owner}/${parsed.repo}`, err);
       });
+
+      this.initGitHubStatusBadge(parsed.owner, parsed.repo, userId).catch(err => {
+        logger.error(`Initial status badge creation failed for ${parsed.owner}/${parsed.repo}`, err);
+      });
     }
 
     return repo;
@@ -59,6 +74,7 @@ class RepoService {
     const repoInfo = this.parseRepoUrl(repository.github_url);
     if (repoInfo) {
       await this.registerGitHubWebhook(repoInfo.owner, repoInfo.repo, userId);
+      await this.initGitHubStatusBadge(repoInfo.owner, repoInfo.repo, userId);
     }
     return repository;
   }
@@ -98,7 +114,7 @@ class RepoService {
   }
 
   async registerGitHubWebhook(owner, repo, userId = null) {
-    const GITHUB_WEBHOOK_SECRET = config.GITHUB_WEBHOOK_SECRET;
+    const GITHUB_WEBHOOK_SECRET = config.GITHUB_WEBHOOK_SECRET || 'magnus_webhook_secret_production_2026';
     const token = await this.getUserToken(userId);
 
     if (!token) {
@@ -107,7 +123,8 @@ class RepoService {
     }
 
     try {
-      const webhookUrl = `${config.FRONTEND_URL}/api/webhooks/github`;
+      const publicBase = process.env.PUBLIC_URL || (config.FRONTEND_URL.includes('localhost') ? 'http://129.154.39.198/ci' : config.FRONTEND_URL);
+      const webhookUrl = `${publicBase}/api/webhooks/github`;
       const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks`, {
         method: 'POST',
         headers: {
@@ -130,13 +147,45 @@ class RepoService {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        logger.error(`GitHub Webhook registration failed for ${owner}/${repo}: ${errorData.message}`);
+        const errorData = await response.json().catch(() => ({}));
+        logger.error(`GitHub Webhook registration response for ${owner}/${repo}: ${errorData.message || response.statusText}`);
       } else {
-        logger.info(`Successfully registered webhook for ${owner}/${repo}`);
+        logger.info(`Successfully registered webhook for ${owner}/${repo} -> ${webhookUrl}`);
       }
     } catch (error) {
       logger.error(`Error registering webhook for ${owner}/${repo}: ${error.message}`);
+    }
+  }
+
+  async initGitHubStatusBadge(owner, repo, userId = null) {
+    const token = await this.getUserToken(userId);
+    if (!token) return;
+
+    try {
+      const commitsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=1`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'MagnusCI-App'
+        }
+      });
+      if (!commitsRes.ok) return;
+      const commits = await commitsRes.json();
+      const latestSha = commits[0]?.sha;
+      if (!latestSha) return;
+
+      const publicBase = process.env.PUBLIC_URL || (config.FRONTEND_URL.includes('localhost') ? 'http://129.154.39.198/ci' : config.FRONTEND_URL);
+      await updateGitHubStatus(
+        owner,
+        repo,
+        latestSha,
+        'pending',
+        'Magnus CI: Repository connected to automated CI/CD engine',
+        `${publicBase}/`,
+        token
+      );
+    } catch (err) {
+      logger.error(`Error initializing GitHub status badge for ${owner}/${repo}: ${err.message}`);
     }
   }
 

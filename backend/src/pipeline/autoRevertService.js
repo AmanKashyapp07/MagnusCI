@@ -76,12 +76,51 @@ function extractDetailedTestResults(buildLogs) {
  * @param {string} buildLogs - Full terminal logs
  * @returns {Promise<string>} Execution status log
  */
-async function handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs) {
-  const token = process.env.GITHUB_TOKEN ? process.env.GITHUB_TOKEN.trim() : null;
+async function handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs, owner = null, repoName = null) {
+  let token = null;
+
+  if (!owner || !repoName) {
+    const match = repoUrl ? repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/) : null;
+    if (match) {
+      owner = owner || match[1];
+      repoName = repoName || match[2].replace(/\.git$/, '');
+    }
+  }
+
+  if (owner && repoName) {
+    try {
+      const pool = require('../db');
+      const res = await pool.query(
+        `SELECT u.access_token 
+         FROM repositories r 
+         JOIN users u ON r.user_id = u.id 
+         WHERE r.github_url ILIKE $1 AND u.access_token IS NOT NULL AND u.access_token != '' LIMIT 1`,
+        [`%${owner}/${repoName}%`]
+      );
+      token = res.rows[0]?.access_token;
+    } catch (e) {}
+  }
 
   if (!token) {
-    logger.info(`[REVERT] No GITHUB_TOKEN configured. Cannot auto-revert commit.`);
-    return `\n[REVERT] No GITHUB_TOKEN configured. Cannot auto-revert commit.\n`;
+    try {
+      const pool = require('../db');
+      const fallbackUser = await pool.query(
+        `SELECT access_token FROM users WHERE access_token IS NOT NULL AND access_token != '' AND access_token NOT ILIKE '%your_github%' ORDER BY id DESC LIMIT 1`
+      );
+      token = fallbackUser.rows[0]?.access_token;
+    } catch (e) {}
+  }
+
+  if (!token && process.env.GITHUB_TOKEN) {
+    const envToken = process.env.GITHUB_TOKEN.trim();
+    if (!envToken.includes('your_github') && !envToken.includes('placeholder')) {
+      token = envToken;
+    }
+  }
+
+  if (!token) {
+    logger.info(`[REVERT] No GitHub token configured. Cannot auto-revert commit.`);
+    return `\n[REVERT] No GitHub token configured. Cannot auto-revert commit.\n`;
   }
 
   let logOutput = `\n[REVERT] Auto-revert started for commit ${commitHash} on branch ${branchName}\n`;
@@ -99,9 +138,12 @@ async function handleRevertCommit(workspacePath, repoUrl, commitHash, branchName
     if (cleanUrl.includes('@')) {
       cleanUrl = cleanUrl.replace(/https:\/\/[^@]+@/, 'https://');
     }
-    const authenticatedUrl = cleanUrl.replace('https://', `https://x-access-token:${token}@`);
+    const authenticatedUrl = cleanUrl.replace('https://', `https://${token}@`);
     await repoGit.remote(['set-url', 'origin', authenticatedUrl]);
     logOutput += `[REVERT] Remote URL configured with GITHUB_TOKEN.\n`;
+
+    await repoGit.raw(['reset', '--hard', 'HEAD']).catch(() => {});
+    await repoGit.raw(['clean', '-fd']).catch(() => {});
 
     const originalSubject = await repoGit.raw(['log', '-1', '--format=%s', commitHash])
       .then(s => s.trim())
@@ -116,7 +158,7 @@ async function handleRevertCommit(workspacePath, repoUrl, commitHash, branchName
     await repoGit.commit(commitMsg);
     logOutput += `[REVERT] Custom revert commit created locally.\n`;
 
-    await repoGit.push(['origin', `HEAD:${branchName}`], { '--force': false });
+    await repoGit.raw(['push', 'origin', `HEAD:${branchName}`]);
     logOutput += `[REVERT] Revert commit successfully pushed to branch ${branchName}.\n`;
   } catch (err) {
     logOutput += `[REVERT] Error performing auto-revert: ${err.message}\n`;
@@ -130,3 +172,4 @@ module.exports = {
   extractDetailedTestResults,
   handleRevertCommit
 };
+

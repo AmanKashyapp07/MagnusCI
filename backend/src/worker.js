@@ -243,10 +243,10 @@ const worker = new Worker('build-queue', async (job) => {
 
       if (success) {
         logSuccess(`Stage '${stageName}' executed cleanly.`);
-        buildLogs += logEngine(`${styles.green}✔ Stage '${stageName}' completed successfully.${styles.reset}\n`);
+        buildLogs += logEngine(`${styles.green}[SUCCESS] Stage '${stageName}' completed successfully.${styles.reset}\n`);
       } else {
         logError(`Stage '${stageName}' failed execution.`);
-        buildLogs += logEngine(`${styles.red}❌ Stage '${stageName}' failed.${styles.reset}\n`);
+        buildLogs += logEngine(`${styles.red}[FAILED] Stage '${stageName}' failed.${styles.reset}\n`);
       }
 
       delete activeContainers[stageName];
@@ -318,7 +318,7 @@ const worker = new Worker('build-queue', async (job) => {
     // Trigger Auto-Revert on main branch failures
     if (branchName === 'main' || branchName === 'master') {
       try {
-        const revertLog = await handleRevertCommit(workspacePath, githubUrl, commitHash, branchName, buildId, buildLogs);
+        const revertLog = await handleRevertCommit(workspacePath, githubUrl, commitHash, branchName, buildId, buildLogs, owner, repoName);
         buildLogs += revertLog;
       } catch (revertErr) {
         logError(`Auto-revert failed:`, revertErr);

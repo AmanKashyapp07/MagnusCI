@@ -5,7 +5,7 @@ const userService = require('../services/userService');
 
 class AuthController {
   initiateGithubLogin(req, res) {
-    const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${config.GITHUB_CLIENT_ID}&scope=repo%20admin:repo_hook%20repo:status%20read:user`;
+    const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${config.GITHUB_CLIENT_ID}&scope=repo%20admin:repo_hook%20repo:status%20read:user&prompt=consent`;
     res.redirect(githubAuthUrl);
   }
 
