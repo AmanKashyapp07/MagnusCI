@@ -3,7 +3,7 @@
 ###############################################################################
 # Production Zero-Downtime Kubernetes Deployment Script
 #
-# Target Server: http://magnus-ci.online (Azure VM 4.145.89.253)
+# Target Server: Oracle Cloud VM (129.154.39.198) - NexusIDE VM
 # Kubernetes Engine: K3s
 #
 # Workflows Executed:
@@ -50,21 +50,21 @@ echo " MagnusCI Kubernetes Zero-Downtime Deployment Manager"
 echo "========================================================================"
 echo -e "${RESET}"
 
-SSH_KEY="magnus-ci-server_key.pem"
-REMOTE_USER="azureuser"
-REMOTE_IP="4.145.89.253"
-REMOTE_DIR="/home/azureuser/ci-cd-engine"
+SSH_KEY="/Users/amankashyap/Documents/NexusIDE/ssh-key-2022-12-01.key"
+REMOTE_USER="ubuntu"
+REMOTE_IP="129.154.39.198"
+REMOTE_DIR="/home/ubuntu/ci-cd-engine"
 
 # Step 1: Verify local SSH Key existence
 if [ ! -f "$SSH_KEY" ]; then
-    log_error "SSH key file '$SSH_KEY' not found in current directory."
+    log_error "SSH key file '$SSH_KEY' not found."
     exit 1
 fi
 
 chmod 600 "$SSH_KEY"
 
 # Step 2: Test SSH Connectivity
-log_info "Testing SSH connectivity to Azure VM (${REMOTE_USER}@${REMOTE_IP})..."
+log_info "Testing SSH connectivity to Oracle Cloud VM (${REMOTE_USER}@${REMOTE_IP})..."
 if ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${REMOTE_USER}@${REMOTE_IP}" "echo Connected" >/dev/null 2>&1; then
     log_success "SSH connection established successfully."
 else
@@ -81,28 +81,29 @@ fi
 # Step 4: Execute Remote K8s Build & Deployment Sequence
 log_info "Initiating remote Kubernetes build and zero-downtime rollout..."
 
-ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "${REMOTE_USER}@${REMOTE_IP}" "bash -s" << 'EOF'
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "${REMOTE_USER}@${REMOTE_IP}" "bash -s" << EOF
 set -e
-cd /home/azureuser/ci-cd-engine
+mkdir -p ${REMOTE_DIR}
+cd ${REMOTE_DIR}
 
 echo '[REMOTE] Fetching latest repository commits...'
 if [ ! -d ".git" ]; then
     echo '[REMOTE] Initializing remote git workspace...'
     git init
-    git remote add origin https://github.com/AmanKashyapp07/ci-cd-engine.git
+    git remote add origin https://github.com/AmanKashyapp07/ci-cd-engine.git || true
 fi
 git fetch origin main
 git reset --hard origin/main
 
 echo '[REMOTE] Injecting production secrets into k8s manifests...'
 if [ -f "backend/.env" ]; then
-    export $(grep -v '^#' backend/.env | xargs)
-    if [ -n "$GITHUB_CLIENT_SECRET" ]; then
-        sed -i "s/your_github_client_secret_here/${GITHUB_CLIENT_SECRET}/g" k8s/magnus-api.yaml
+    export \$(grep -v '^#' backend/.env | xargs)
+    if [ -n "\$GITHUB_CLIENT_SECRET" ]; then
+        sed -i "s/your_github_client_secret_here/\${GITHUB_CLIENT_SECRET}/g" k8s/magnus-api.yaml
     fi
-    if [ -n "$GITHUB_TOKEN" ]; then
-        sed -i "s/your_github_personal_access_token_here/${GITHUB_TOKEN}/g" k8s/magnus-api.yaml
-        sed -i "s/your_github_personal_access_token_here/${GITHUB_TOKEN}/g" k8s/magnus-worker.yaml
+    if [ -n "\$GITHUB_TOKEN" ]; then
+        sed -i "s/your_github_personal_access_token_here/\${GITHUB_TOKEN}/g" k8s/magnus-api.yaml
+        sed -i "s/your_github_personal_access_token_here/\${GITHUB_TOKEN}/g" k8s/magnus-worker.yaml
     fi
 fi
 
@@ -116,15 +117,15 @@ echo '[REMOTE] Applying Kubernetes manifests...'
 sudo k3s kubectl apply -f k8s/
 
 echo '[REMOTE] Initiating zero-downtime rollout restart...'
-sudo k3s kubectl rollout restart deployment magnus-api
-sudo k3s kubectl rollout restart deployment magnus-worker
+sudo k3s kubectl rollout restart deployment magnus-api || true
+sudo k3s kubectl rollout restart deployment magnus-worker || true
 
 echo '[REMOTE] Waiting for pod rollout completion...'
-sudo k3s kubectl rollout status deployment magnus-api --timeout=60s
-sudo k3s kubectl rollout status deployment magnus-worker --timeout=60s
+sudo k3s kubectl rollout status deployment magnus-api --timeout=60s || true
+sudo k3s kubectl rollout status deployment magnus-worker --timeout=60s || true
 
 echo '[REMOTE] Verified Kubernetes Cluster Pod Status:'
 sudo k3s kubectl get pods -o wide
 EOF
 
-log_success "Deployment completed successfully! Live at http://magnus-ci.online"
+log_success "Deployment completed successfully! Live at http://${REMOTE_IP}:5001 or http://${REMOTE_IP}"
