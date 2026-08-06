@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-const LIVE_URL = process.env.TEST_TARGET_URL || 'http://magnus-ci.online';
+const LIVE_URL = process.env.TEST_TARGET_URL || 'http://129.154.39.198:30501';
 
 test.describe('Ultra-Rigorous E2E Suite: Production End-to-End System Verification', () => {
 

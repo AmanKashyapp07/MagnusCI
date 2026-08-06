@@ -96,7 +96,7 @@ The platform architecture is defined via 7 declarative Kubernetes YAML manifests
 
 Production deployments are automated via a single shell script (`./deploy.sh`):
 
-1. **SSH Connectivity Check:** Validates access to the Azure VM (`azureuser@4.145.89.253`).
+1. **SSH Connectivity Check:** Validates access to the Oracle Cloud VM (`ubuntu@129.154.39.198`) via `NexusIDE/ssh-key-2022-12-01.key`.
 2. **Git Synchronization:** Fetches and checks out the latest commit on `main`.
 3. **Container Image Build:** Multi-stage Docker build producing `amankashyap07/magnus-api:latest`.
 4. **k3s Runtime Import:** Imports the updated image directly into `k3s` (`k3s ctr image import`).
