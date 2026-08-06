@@ -32,14 +32,14 @@ spec:
             - name: POSTGRES_DB
               value: "ci_cd_engine"
             - name: FRONTEND_URL
-              value: "http://129.154.39.198:5001"
+              value: "http://129.154.39.198/ci"
             - name: JWT_SECRET
               value: "aman123"
             # Note: Secrets should ideally use kubernetes Secret resources.
             - name: GITHUB_CLIENT_ID
               value: "Ov23liW688DnyJEBbQ5I"
             - name: GITHUB_CLIENT_SECRET
-              value: "your_github_client_secret_here"
+              value: "c9934dc0a53522b9b784fa04562baa0d541fc28b"
             - name: GITHUB_WEBHOOK_SECRET
               value: "aman123"
             - name: GITHUB_TOKEN
