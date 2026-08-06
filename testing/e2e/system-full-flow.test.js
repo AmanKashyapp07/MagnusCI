@@ -74,6 +74,7 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       const scriptMatch = pageRes.data.match(/src="(\/assets\/[^"]+\.js)"/);
       expect(scriptMatch).not.toBeNull();
 
+      
       const scriptUrl = scriptMatch[1];
       const assetRes = await axios.get(`${TARGET_URL}${scriptUrl}`, {
         ...reqConfig,

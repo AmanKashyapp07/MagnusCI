@@ -90,7 +90,9 @@ echo '[REMOTE] Fetching latest repository commits...'
 if [ ! -d ".git" ]; then
     echo '[REMOTE] Initializing remote git workspace...'
     git init
-    git remote add origin https://github.com/AmanKashyapp07/ci-cd-engine.git || true
+    git remote add origin https://github.com/AmanKashyapp07/MagnusCI.git || true
+else
+    git remote set-url origin https://github.com/AmanKashyapp07/MagnusCI.git || true
 fi
 git fetch origin main
 git reset --hard origin/main
@@ -124,8 +126,14 @@ echo '[REMOTE] Waiting for pod rollout completion...'
 sudo k3s kubectl rollout status deployment magnus-api --timeout=60s || true
 sudo k3s kubectl rollout status deployment magnus-worker --timeout=60s || true
 
+echo '[REMOTE] Ensuring system permissions & Nginx routing...'
+sudo chmod 755 /home/ubuntu
+sudo systemctl reload nginx || true
+
 echo '[REMOTE] Verified Kubernetes Cluster Pod Status:'
 sudo k3s kubectl get pods -o wide
 EOF
 
-log_success "Deployment completed successfully! Live at http://${REMOTE_IP}:5001 or http://${REMOTE_IP}"
+log_success "Deployment completed successfully!"
+log_success "🚀 MagnusCI: http://${REMOTE_IP}"
+log_success "💻 NexusIDE: http://${REMOTE_IP}/ide/"
