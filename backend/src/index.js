@@ -31,11 +31,11 @@ app.use(
 );
 
 // Route Mountings
-app.use('/api/health', healthRoutes);
-app.use('/api/repositories', repositoryRoutes);
-app.use('/api/builds', buildRoutes);
-app.use('/api/webhooks', webhookRoutes);
-app.use('/api/auth', authRoutes);
+app.use(['/api/health', '/ci/api/health'], healthRoutes);
+app.use(['/api/repositories', '/ci/api/repositories'], repositoryRoutes);
+app.use(['/api/builds', '/ci/api/builds'], buildRoutes);
+app.use(['/api/webhooks', '/ci/api/webhooks'], webhookRoutes);
+app.use(['/api/auth', '/ci/api/auth'], authRoutes);
 
 // Static frontend SPA serving
 const frontendDistPath = path.join(__dirname, '../../frontend/dist');

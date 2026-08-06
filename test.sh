@@ -53,9 +53,9 @@ echo -e "${CYAN} Target: ${YELLOW}http://129.154.39.198${RESET}"
 echo -e "${CYAN} Execution Time: ${YELLOW}$(date +'%Y-%m-%d %H:%M:%S')${RESET}"
 echo "------------------------------------------------------------------------"
 
-export DEPLOYED_URL="${DEPLOYED_URL:-http://129.154.39.198}"
-export TEST_TARGET_URL="${TEST_TARGET_URL:-http://129.154.39.198}"
-export BASE_URL="${BASE_URL:-http://129.154.39.198}"
+export DEPLOYED_URL="${DEPLOYED_URL:-http://129.154.39.198/ci}"
+export TEST_TARGET_URL="${TEST_TARGET_URL:-http://129.154.39.198/ci}"
+export BASE_URL="${BASE_URL:-http://129.154.39.198/ci}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTING_DIR="${ROOT_DIR}/testing"
