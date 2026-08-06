@@ -76,7 +76,9 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
 
       
       const scriptUrl = scriptMatch[1];
-      const assetRes = await axios.get(`${TARGET_URL}${scriptUrl}`, {
+      const targetBase = TARGET_URL.endsWith('/ci') ? TARGET_URL.slice(0, -3) : TARGET_URL;
+      const fullScriptUrl = scriptUrl.startsWith('/ci') ? `${targetBase}${scriptUrl}` : `${TARGET_URL}${scriptUrl}`;
+      const assetRes = await axios.get(fullScriptUrl, {
         ...reqConfig,
         responseType: 'text'
       });
@@ -94,7 +96,9 @@ describe('Production-Grade E2E Tests: System Full-Flow & Webhook Automation', ()
       expect(cssMatch).not.toBeNull();
 
       const cssUrl = cssMatch[1];
-      const cssRes = await axios.get(`${TARGET_URL}${cssUrl}`, {
+      const targetBase = TARGET_URL.endsWith('/ci') ? TARGET_URL.slice(0, -3) : TARGET_URL;
+      const fullCssUrl = cssUrl.startsWith('/ci') ? `${targetBase}${cssUrl}` : `${TARGET_URL}${cssUrl}`;
+      const cssRes = await axios.get(fullCssUrl, {
         ...reqConfig,
         responseType: 'text'
       });
