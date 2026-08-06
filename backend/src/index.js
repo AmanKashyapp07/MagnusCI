@@ -42,6 +42,7 @@ const frontendDistPath = path.join(__dirname, '../../frontend/dist');
 const fallbackDistPath = path.join(__dirname, '../public/dist');
 const distPath = require('fs').existsSync(frontendDistPath) ? frontendDistPath : fallbackDistPath;
 
+app.use('/ci', express.static(distPath));
 app.use(express.static(distPath));
 
 // SPA Client-side routing fallback

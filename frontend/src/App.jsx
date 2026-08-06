@@ -16,7 +16,7 @@ function App() {
   const { token, user, fetchWithAuth, handleLogout, initiateGithubLogin } = useAuth();
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/ci">
       <Routes>
         <Route
           path="/login"
