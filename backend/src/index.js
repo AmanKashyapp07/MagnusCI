@@ -37,13 +37,27 @@ app.use(['/api/builds', '/ci/api/builds'], buildRoutes);
 app.use(['/api/webhooks', '/ci/api/webhooks'], webhookRoutes);
 app.use(['/api/auth', '/ci/api/auth'], authRoutes);
 
-// Static frontend SPA serving
+// Static frontend SPA serving with high-speed local browser caching
 const frontendDistPath = path.join(__dirname, '../../frontend/dist');
 const fallbackDistPath = path.join(__dirname, '../public/dist');
 const distPath = require('fs').existsSync(frontendDistPath) ? frontendDistPath : fallbackDistPath;
 
-app.use('/ci', express.static(distPath));
-app.use(express.static(distPath));
+const staticCacheOptions = {
+  maxAge: '1y',
+  immutable: true,
+  setHeaders: (res, filePath) => {
+    // Service Worker, Manifest, and HTML should never be cached permanently to allow instantaneous updates
+    if (filePath.endsWith('index.html') || filePath.endsWith('sw.js') || filePath.endsWith('manifest.webmanifest')) {
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+    } else {
+      // Vite hashed bundles and static files are immutable and cached in client local disk/memory storage
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  }
+};
+
+app.use('/ci', express.static(distPath, staticCacheOptions));
+app.use(express.static(distPath, staticCacheOptions));
 
 // SPA Client-side routing fallback
 app.use((req, res, next) => {
@@ -53,6 +67,7 @@ app.use((req, res, next) => {
   }
   const indexPath = path.join(distPath, 'index.html');
   if (require('fs').existsSync(indexPath)) {
+    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
     return res.sendFile(indexPath);
   }
   next();

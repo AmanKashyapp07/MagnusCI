@@ -7,12 +7,14 @@ import {
   registerRepository,
 } from "../api/repositoriesApi";
 import { getBuilds } from "../api/buildsApi";
+import { getCachedData, setCachedData } from "../utils/localCache";
 
 export function useDashboardData(token, fetchWithAuth, showToast) {
   const [dbStatus, setDbStatus] = useState("checking");
   const [dbTime, setDbTime] = useState("");
-  const [repos, setRepos] = useState([]);
-  const [builds, setBuilds] = useState([]);
+  // Initialize with locally cached static state for instantaneous UI render on reload
+  const [repos, setRepos] = useState(() => getCachedData("dashboard_repos", []));
+  const [builds, setBuilds] = useState(() => getCachedData("dashboard_builds", []));
   
   const [repoName, setRepoName] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
@@ -40,6 +42,7 @@ export function useDashboardData(token, fetchWithAuth, showToast) {
       const data = await getRepositories(fetchWithAuth);
       if (Array.isArray(data)) {
         setRepos(data);
+        setCachedData("dashboard_repos", data);
       }
     } catch (err) {
       console.error("[Dashboard] Failed to fetch repositories:", err);
@@ -52,6 +55,7 @@ export function useDashboardData(token, fetchWithAuth, showToast) {
       const data = await getBuilds(fetchWithAuth);
       if (Array.isArray(data)) {
         setBuilds(data);
+        setCachedData("dashboard_builds", data);
       }
     } catch (err) {
       console.error("[Dashboard] Failed to fetch builds:", err);

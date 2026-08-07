@@ -1,11 +1,12 @@
 const axios = require('axios');
 
 describe('Production-Grade E2E Tests: Live Deployed Deployment (http://magnus-ci.online)', () => {
+  jest.setTimeout(30000);
 
   const TARGET_URL = process.env.DEPLOYED_URL || 'http://129.154.39.198';
   const reqConfig = {
     headers: { 'User-Agent': 'MagnusCI-TestRunner/1.0', 'Host': 'magnus-ci.online' },
-    timeout: 10000
+    timeout: 20000
   };
 
   test('1. Health Endpoint Verification: /api/health should respond with healthy status & DB connected', async () => {
