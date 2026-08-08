@@ -223,6 +223,7 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
 
   const plainLogs = stripAnsi(rawLogs);
   const isFinishedLogStream = plainLogs.includes('DAG pipeline session finished') || plainLogs.includes('finished context routines');
+  let hasUpstreamFailed = false;
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
@@ -256,7 +257,10 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
 
     if (hasError) {
       step.status = 'failed';
-    } else if (isSkipped) {
+      if (step.id.startsWith('stage_')) {
+        hasUpstreamFailed = true;
+      }
+    } else if (isSkipped || (hasUpstreamFailed && step.id.startsWith('stage_') && !isStageCompleted)) {
       step.status = 'skipped';
     } else if (step.lines.length > 0) {
       if (isStageCompleted) {
@@ -265,6 +269,9 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
         step.status = 'running';
       } else if (buildStatus === 'FAILED' && !isStageCompleted) {
         step.status = 'failed';
+        if (step.id.startsWith('stage_')) {
+          hasUpstreamFailed = true;
+        }
       } else {
         step.status = 'success';
       }
@@ -272,7 +279,7 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
       // Step has 0 lines
       if (['setup_workspace', 'env_detect', 'cleanup'].includes(step.id)) {
         step.status = 'success';
-      } else if (buildStatus === 'FAILED' || isFinishedLogStream) {
+      } else if (buildStatus === 'FAILED' || isFinishedLogStream || hasUpstreamFailed) {
         step.status = 'skipped';
       } else {
         step.status = 'pending';

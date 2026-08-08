@@ -184,11 +184,18 @@ export default function BuildModal({
             <span className="flex items-center gap-1.5 uppercase tracking-widest">
               Build Steps
             </span>
-            {viewMode === 'steps' && parsedSteps.length > 0 && (
-              <span className="text-[var(--text-primary)] font-mono">
-                {parsedSteps.filter(s => s.status === 'success').length} / {parsedSteps.length} passed
-              </span>
-            )}
+            {viewMode === 'steps' && parsedSteps.length > 0 && (() => {
+              const passedCount = parsedSteps.filter(s => s.status === 'success').length;
+              const failedCount = parsedSteps.filter(s => s.status === 'failed').length;
+              const skippedCount = parsedSteps.filter(s => s.status === 'skipped').length;
+              return (
+                <div className="flex items-center gap-2 font-mono text-xs">
+                  <span className="text-[#4ADE80] font-semibold">{passedCount} passed</span>
+                  {failedCount > 0 && <span className="text-[#F87171] font-semibold">• {failedCount} failed</span>}
+                  {skippedCount > 0 && <span className="text-[#FBBF24] font-semibold">• {skippedCount} skipped</span>}
+                </div>
+              );
+            })()}
           </div>
           
           <div className="flex items-center gap-4">
