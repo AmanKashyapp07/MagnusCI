@@ -26,6 +26,8 @@ const {
   handleRevertCommit,
   harvestArtifacts
 } = require('./utils/workerHelpers');
+const previewService = require('./services/previewService');
+const githubPrBot = require('./utils/githubPrBot');
 
 // Initialize Docker Client Instance
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -350,21 +352,59 @@ const worker = new Worker('build-queue', async (job) => {
   } finally {
     // Artifact Harvesting & Workspace Cleanup
     if (workspacePath) {
+      let harvestedArtifacts = [];
       try {
         logWorker(`Harvesting build artifacts and test coverage reports...`);
-        const artifacts = await harvestArtifacts(workspacePath, buildId);
+        harvestedArtifacts = await harvestArtifacts(workspacePath, buildId);
         
-        if (artifacts.length > 0) {
-          logSuccess(`Harvested ${artifacts.length} build artifact(s).`);
-          buildLogs += logEngine(`Captured ${artifacts.length} build artifact(s) successfully.\n`);
+        if (harvestedArtifacts.length > 0) {
+          logSuccess(`Harvested ${harvestedArtifacts.length} build artifact(s).`);
+          buildLogs += logEngine(`Captured ${harvestedArtifacts.length} build artifact(s) successfully.\n`);
           await pool.query(
             "UPDATE builds SET artifacts = $1 WHERE id = $2",
-            [JSON.stringify(artifacts), buildId]
+            [JSON.stringify(harvestedArtifacts), buildId]
           );
           await saveLogs(buildId, buildLogs);
         }
       } catch (artifactErr) {
         logError(`Artifact harvesting encountered error:`, artifactErr);
+      }
+
+      // Live Staging Preview Deployment
+      let previewRes = { deployed: false, previewUrl: null };
+      try {
+        previewRes = await previewService.deployPreview(buildId, workspacePath);
+      } catch (previewErr) {
+        logError(`Preview deployment non-fatal error:`, previewErr);
+      }
+
+      // Automated GitHub Pull Request Comment Bot
+      const pullNumber = job.data.pullNumber || job.data.pull_request?.number || job.data.issue_number;
+      if (pullNumber && owner && repoName) {
+        try {
+          const currentBuildRes = await pool.query("SELECT status, started_at, finished_at FROM builds WHERE id = $1", [buildId]);
+          const currentBuild = currentBuildRes.rows[0] || {};
+          const durationSec = currentBuild.finished_at && currentBuild.started_at
+            ? Math.round((new Date(currentBuild.finished_at) - new Date(currentBuild.started_at)) / 1000)
+            : 10;
+
+          await githubPrBot.postPullRequestComment({
+            owner,
+            repo: repoName,
+            pullNumber,
+            buildData: {
+              buildId,
+              commitSha: commitHash,
+              branch: branchName,
+              status: currentBuild.status || 'SUCCESS',
+              durationSeconds: durationSec,
+              previewUrl: previewRes.previewUrl,
+              artifacts: harvestedArtifacts
+            }
+          });
+        } catch (prBotErr) {
+          logError(`GitHub PR Bot comment dispatch non-fatal error:`, prBotErr);
+        }
       }
 
       try {
