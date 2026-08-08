@@ -278,6 +278,12 @@ const worker = new Worker('build-queue', async (job) => {
 
     const stageResults = await executeDAG(pipelineStages, runStageFn);
     
+    for (const [sName, sRes] of Object.entries(stageResults)) {
+      if (sRes === 'PENDING') {
+        buildLogs += logEngine(`${styles.yellow}[SKIPPED] Stage '${sName}' skipped due to upstream failure.${styles.reset}\n`);
+      }
+    }
+
     clearInterval(logInterval);
     if (statsInterval) clearInterval(statsInterval);
 

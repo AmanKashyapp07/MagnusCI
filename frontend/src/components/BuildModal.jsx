@@ -287,14 +287,21 @@ export default function BuildModal({
                             <div className="w-1.5 h-1.5 rounded-full bg-[#404040]"></div>
                           </div>
                         )}
+                        {step.status === 'skipped' && (
+                          <svg className="w-5 h-5 text-[#FBBF24] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                          </svg>
+                        )}
                         <span className={`text-sm font-bold ${
                           step.status === 'failed'
                             ? 'text-[#F87171]'
                             : step.status === 'running'
                             ? 'text-[#60A5FA]'
+                            : step.status === 'skipped'
+                            ? 'text-[#FBBF24]'
                             : 'text-[#D4D4D4]'
                         }`}>
-                          {step.name}
+                          {step.name} {step.status === 'skipped' ? '(Skipped)' : ''}
                         </span>
                       </div>
                       
