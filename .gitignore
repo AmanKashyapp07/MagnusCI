@@ -13,3 +13,8 @@ caches/
 backend/public/artifacts/
 Interview-Prep/
 *.pem
+test-results/
+testing/test-results/
+playwright-report/
+testing/playwright-report/
+.playwright/

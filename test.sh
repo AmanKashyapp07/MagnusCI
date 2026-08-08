@@ -56,6 +56,7 @@ record_suite() {
 
 cleanup() {
   local exit_code=$?
+  rm -rf "${TESTING_DIR}/test-results" "${TESTING_DIR}/playwright-report" "${ROOT_DIR}/test-results" "${ROOT_DIR}/playwright-report" /tmp/magnus-playwright-results 2>/dev/null || true
   if [ $exit_code -ne 0 ]; then
     log_error "Execution stopped due to failure or signal."
   fi

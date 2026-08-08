@@ -13,6 +13,8 @@ const buildRoutes = require('./routes/builds');
 const webhookRoutes = require('./routes/webhooks');
 const authRoutes = require('./routes/auth');
 
+const previewRoutes = require('./routes/previews');
+
 const app = express();
 
 // Security & Middleware
@@ -36,6 +38,7 @@ app.use(['/api/repositories', '/ci/api/repositories'], repositoryRoutes);
 app.use(['/api/builds', '/ci/api/builds'], buildRoutes);
 app.use(['/api/webhooks', '/ci/api/webhooks'], webhookRoutes);
 app.use(['/api/auth', '/ci/api/auth'], authRoutes);
+app.use(previewRoutes);
 
 // Static frontend SPA serving with high-speed local browser caching
 const frontendDistPath = path.join(__dirname, '../../frontend/dist');
