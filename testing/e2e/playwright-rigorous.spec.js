@@ -279,8 +279,16 @@ test.describe('Ultra-Rigorous E2E Suite: Production End-to-End System Verificati
       const configData = JSON.parse(fs.readFileSync(path.join(targetDir, 'magnus-ci.json'), 'utf8'));
       expect(configData).toHaveProperty('stages');
       expect(configData.stages).toHaveProperty('setup');
-      expect(configData.stages).toHaveProperty('test');
-      expect(configData.stages.test.needs).toContain('setup');
+      // Support repositories that split tests into unit/integration stages
+      if (configData.stages.hasOwnProperty('test')) {
+        expect(configData.stages.test.needs).toContain('setup');
+      } else {
+        expect(configData.stages).toHaveProperty('test_unit');
+        expect(configData.stages).toHaveProperty('test_integration');
+        const needsUnit = configData.stages.test_unit.needs || [];
+        const needsIntegration = configData.stages.test_integration.needs || [];
+        expect(needsUnit.concat(needsIntegration)).toContain('setup');
+      }
     });
 
     test('4.3 Execute local Node unit test suite cleanly', async () => {

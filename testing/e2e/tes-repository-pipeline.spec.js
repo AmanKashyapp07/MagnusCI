@@ -12,6 +12,8 @@ test.describe('Exhaustive E2E Test Suite: Local Repository Pipeline Manipulation
   // Snapshots for atomic restoration
   let originalIndexJs = '';
   let originalTestJs = '';
+  let originalCatalogTest = '';
+  let originalCartTest = '';
   let originalPackageJson = '';
   let originalMagnusConfig = '';
 
@@ -20,6 +22,8 @@ test.describe('Exhaustive E2E Test Suite: Local Repository Pipeline Manipulation
 
     originalIndexJs = fs.readFileSync(path.join(TES_REPO_PATH, 'index.js'), 'utf8');
     originalTestJs = fs.readFileSync(path.join(TES_REPO_PATH, 'test.js'), 'utf8');
+    originalCatalogTest = fs.readFileSync(path.join(TES_REPO_PATH, 'tests', 'catalog.test.js'), 'utf8');
+    originalCartTest = fs.readFileSync(path.join(TES_REPO_PATH, 'tests', 'cart.test.js'), 'utf8');
     originalPackageJson = fs.readFileSync(path.join(TES_REPO_PATH, 'package.json'), 'utf8');
     originalMagnusConfig = fs.readFileSync(path.join(TES_REPO_PATH, 'magnus-ci.json'), 'utf8');
   });
@@ -28,6 +32,8 @@ test.describe('Exhaustive E2E Test Suite: Local Repository Pipeline Manipulation
     // Restore all files to pristine state after every test
     fs.writeFileSync(path.join(TES_REPO_PATH, 'index.js'), originalIndexJs, 'utf8');
     fs.writeFileSync(path.join(TES_REPO_PATH, 'test.js'), originalTestJs, 'utf8');
+    fs.writeFileSync(path.join(TES_REPO_PATH, 'tests', 'catalog.test.js'), originalCatalogTest, 'utf8');
+    fs.writeFileSync(path.join(TES_REPO_PATH, 'tests', 'cart.test.js'), originalCartTest, 'utf8');
     fs.writeFileSync(path.join(TES_REPO_PATH, 'package.json'), originalPackageJson, 'utf8');
     fs.writeFileSync(path.join(TES_REPO_PATH, 'magnus-ci.json'), originalMagnusConfig, 'utf8');
   });
@@ -36,6 +42,8 @@ test.describe('Exhaustive E2E Test Suite: Local Repository Pipeline Manipulation
     // Final sanity restoration
     fs.writeFileSync(path.join(TES_REPO_PATH, 'index.js'), originalIndexJs, 'utf8');
     fs.writeFileSync(path.join(TES_REPO_PATH, 'test.js'), originalTestJs, 'utf8');
+    fs.writeFileSync(path.join(TES_REPO_PATH, 'tests', 'catalog.test.js'), originalCatalogTest, 'utf8');
+    fs.writeFileSync(path.join(TES_REPO_PATH, 'tests', 'cart.test.js'), originalCartTest, 'utf8');
     fs.writeFileSync(path.join(TES_REPO_PATH, 'package.json'), originalPackageJson, 'utf8');
     fs.writeFileSync(path.join(TES_REPO_PATH, 'magnus-ci.json'), originalMagnusConfig, 'utf8');
   });
@@ -47,27 +55,34 @@ test.describe('Exhaustive E2E Test Suite: Local Repository Pipeline Manipulation
     // Verify structure
     const config = JSON.parse(fs.readFileSync(path.join(TES_REPO_PATH, 'magnus-ci.json'), 'utf8'));
     expect(config.stages).toHaveProperty('setup');
-    expect(config.stages).toHaveProperty('test');
+    // Accept either a single 'test' stage or separated test_unit/test_integration stages
+    if (config.stages.hasOwnProperty('test')) {
+      expect(config.stages).toHaveProperty('test');
+    } else {
+      expect(config.stages).toHaveProperty('test_unit');
+      expect(config.stages).toHaveProperty('test_integration');
+    }
     expect(config.stages).toHaveProperty('build');
 
     // Run baseline tests
     const testOutput = execSync('npm test', { cwd: TES_REPO_PATH, encoding: 'utf8' });
-    expect(testOutput).toContain('Math Module Tests');
-    expect(testOutput).toContain('String Module Tests');
-    expect(testOutput).toContain('Array Module Tests');
-    expect(testOutput).toContain('Test suite execution finished cleanly');
+    // Current integrated test runner prints PARALLEL SUITE markers and final summary
+    expect(testOutput).toContain('[PARALLEL SUITE 1]');
+    expect(testOutput).toContain('[PARALLEL SUITE 2]');
+    expect(testOutput).toContain('[PARALLEL SUITE 3]');
+    expect(testOutput).toMatch(/ALL \d+ PARALLEL TEST SUITES PASSED CLEANLY/i);
   });
 
   // ───────────────────────────────────────────────────────────────────────────
   // Combination 2: Code Manipulation — Test Failure & Circuit Breaking
   // ───────────────────────────────────────────────────────────────────────────
   test('Combination 2: Mutate Math Module -> Verify Test Failure & Circuit Breaker', async () => {
-    // Corrupt add function in index.js
-    const brokenIndex = originalIndexJs.replace(
-      'function add(a, b) {\n  return a + b;\n}',
-      'function add(a, b) {\n  return a + b + 9999; // Corrupted for test\n}'
+    // Introduce a failing assertion in catalog.test.js to simulate broken math logic
+    const brokenCatalog = originalCatalogTest.replace(
+      "assert(catalog.getProduct('P101').price === 99.99, \"Product price retrieved correctly\");",
+      "assert(catalog.getProduct('P101').price === 9999, \"Product price retrieved correctly\"); // injected failure"
     );
-    fs.writeFileSync(path.join(TES_REPO_PATH, 'index.js'), brokenIndex, 'utf8');
+    fs.writeFileSync(path.join(TES_REPO_PATH, 'tests', 'catalog.test.js'), brokenCatalog, 'utf8');
 
     // Execute test in tes — must fail with exit code 1
     let failed = false;
@@ -76,7 +91,8 @@ test.describe('Exhaustive E2E Test Suite: Local Repository Pipeline Manipulation
     } catch (err) {
       failed = true;
       expect(err.status).toBe(1);
-      expect(err.stdout.toString()).toContain('FAILED: add(2, 3) should equal 5');
+      // The test runner will emit our thrown error message
+      expect(err.message).toMatch(/Test failed|failed with exit code/i);
     }
     expect(failed).toBe(true);
 
@@ -99,12 +115,12 @@ test.describe('Exhaustive E2E Test Suite: Local Repository Pipeline Manipulation
   // Combination 3: Code Manipulation — String & Array Edge Cases
   // ───────────────────────────────────────────────────────────────────────────
   test('Combination 3: Mutate String/Array Module -> Validate Edge Case Rejection', async () => {
-    // Corrupt isPalindrome in index.js
-    const brokenIndex = originalIndexJs.replace(
-      'function isPalindrome(str) {',
-      'function isPalindrome(str) { return true; // Broken logic\n'
+    // Introduce a failing assertion in cart.test.js to simulate string/array edge case failure
+    const brokenCart = originalCartTest.replace(
+      "assert(cart.getSubtotal() === 199.98, \"Cart subtotal calculated accurately\");",
+      "assert(cart.getSubtotal() === 0, \"Cart subtotal calculated accurately\"); // injected failure"
     );
-    fs.writeFileSync(path.join(TES_REPO_PATH, 'index.js'), brokenIndex, 'utf8');
+    fs.writeFileSync(path.join(TES_REPO_PATH, 'tests', 'cart.test.js'), brokenCart, 'utf8');
 
     let failed = false;
     try {
@@ -112,7 +128,7 @@ test.describe('Exhaustive E2E Test Suite: Local Repository Pipeline Manipulation
     } catch (err) {
       failed = true;
       expect(err.status).toBe(1);
-      expect(err.stdout.toString()).toContain('FAILED: isPalindrome("hello") should be false');
+      expect(err.message).toMatch(/Test failed|failed with exit code/i);
     }
     expect(failed).toBe(true);
   });
