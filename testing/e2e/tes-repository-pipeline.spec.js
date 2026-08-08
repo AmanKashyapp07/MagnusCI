@@ -340,7 +340,7 @@ test.describe('Exhaustive E2E Test Suite: Local Repository Pipeline Manipulation
 
     // Final test run in tes
     const testOutput = execSync('npm test', { cwd: TES_REPO_PATH, encoding: 'utf8' });
-    expect(testOutput).toContain('Test suite execution finished cleanly!');
+    expect(testOutput).toMatch(/ALL \d+ PARALLEL TEST SUITES PASSED CLEANLY/i);
   });
 
 });

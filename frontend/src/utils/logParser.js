@@ -234,8 +234,10 @@ function parseLogsIntoSteps(rawLogs, buildStatus) {
         return false;
       }
       const cleanLine = lower.replace(/level-errors/g, '');
-      return l.includes('❌') || 
+      // Match a variety of failure markers seen in engine and test output
+      return l.includes('❌') || l.includes('✗') || l.includes('×') ||
              cleanLine.includes('[failed]') ||
+             cleanLine.includes(' failed') ||
              cleanLine.includes('failed execution') || 
              cleanLine.includes('pipeline broken down');
     });
