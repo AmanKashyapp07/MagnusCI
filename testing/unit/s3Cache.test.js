@@ -24,6 +24,7 @@ describe('Scaling Unit Tests: MinIO S3 Object Storage Caching (utils/s3Cache.js)
   describe('1. uploadCacheToMinIO', () => {
     test('should upload cache tarball to MinIO bucket with forcePathStyle', async () => {
       const mockReadStream = { on: jest.fn() };
+      const existsSpy = jest.spyOn(fs, 'existsSync').mockReturnValue(true);
       const createReadStreamSpy = jest.spyOn(fs, 'createReadStream').mockReturnValue(mockReadStream);
       mockSend.mockResolvedValue({});
 
@@ -37,11 +38,13 @@ describe('Scaling Unit Tests: MinIO S3 Object Storage Caching (utils/s3Cache.js)
       expect(commandArg.params.Bucket).toBe('magnus-caches');
       expect(commandArg.params.Key).toBe('test-hash-123.tar.gz');
 
+      existsSpy.mockRestore();
       createReadStreamSpy.mockRestore();
     });
 
     test('should catch and log S3 upload errors without crashing process', async () => {
-      jest.spyOn(fs, 'createReadStream').mockReturnValue({});
+      const existsSpy = jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      const createReadStreamSpy = jest.spyOn(fs, 'createReadStream').mockReturnValue({});
       mockSend.mockRejectedValue(new Error('S3 Connection Timeout'));
 
       await expect(uploadCacheToMinIO('test-hash-err', '/tmp/cache.tar.gz')).resolves.not.toThrow();

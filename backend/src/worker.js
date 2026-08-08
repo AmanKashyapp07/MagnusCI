@@ -36,18 +36,28 @@ const executeStageContainer = async ({ stageName, stageConfig, workspacePath, bi
   const runCommand = stageConfig.run || 'echo "No command specified"';
 
   try {
-    logWorker(`Pulling container image '${imageName}' for stage '${stageName}'...`);
-    onLog(logEngine(`Pulling container image '${styles.cyan}${imageName}${styles.reset}' for stage '${stageName}'...\n`));
-    
-    await new Promise((resolve, reject) => {
-      docker.pull(imageName, (err, stream) => {
-        if (err) return reject(err);
-        docker.modem.followProgress(stream, (onFinishedErr) => {
-          if (onFinishedErr) return reject(onFinishedErr);
-          resolve();
+    let wasPulled = false;
+    try {
+      await docker.getImage(imageName).inspect();
+    } catch {
+      logWorker(`Pulling container image '${imageName}' for stage '${stageName}'...`);
+      onLog(logEngine(`Pulling container image '${styles.cyan}${imageName}${styles.reset}' for stage '${stageName}'...\n`));
+      
+      await new Promise((resolve, reject) => {
+        docker.pull(imageName, (err, stream) => {
+          if (err) return reject(err);
+          docker.modem.followProgress(stream, (onFinishedErr) => {
+            if (onFinishedErr) return reject(onFinishedErr);
+            resolve();
+          });
         });
       });
-    });
+      wasPulled = true;
+    }
+
+    if (!wasPulled) {
+      logWorker(`Using local cached image '${imageName}' for stage '${stageName}'.`);
+    }
 
     onLog(logEngine(`Spawning isolated sandbox container for stage '${styles.cyan}${stageName}${styles.reset}'...\n`));
 
@@ -158,9 +168,20 @@ const worker = new Worker('build-queue', async (job) => {
     }
 
     const git = simpleGit();
-    await git.clone(githubUrl, workspacePath);
+    try {
+      await git.clone(githubUrl, workspacePath, [
+        '--depth', '1',
+        '--single-branch',
+        '--branch', branchName || 'main',
+        '--no-tags'
+      ]);
+    } catch {
+      await git.clone(githubUrl, workspacePath);
+    }
     const gitRepo = simpleGit(workspacePath);
-    await gitRepo.checkout(commitHash);
+    if (commitHash) {
+      await gitRepo.checkout(commitHash).catch(() => {});
+    }
 
     logWorker(`Target commit successfully isolated.`);
     buildLogs += logEngine(`Repository workspace setup complete.\n`);

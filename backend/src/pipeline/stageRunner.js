@@ -29,6 +29,32 @@ async function pullImage(imageName) {
 }
 
 /**
+ * Inspects the local Docker daemon image cache to bypass network pull delays.
+ * Only triggers registry network pull if the image does not exist locally.
+ * 
+ * @param {string} imageName - Docker image tag
+ * @returns {Promise<boolean>} True if pulled from registry, false if resolved from local cache
+ */
+async function ensureImageLocally(imageName) {
+  try {
+    await docker.getImage(imageName).inspect();
+    return false; // Instant 0ms cache hit
+  } catch (err) {
+    if (err.statusCode === 404 || err.message?.includes('no such image') || err.json?.message?.includes('No such image')) {
+      await pullImage(imageName);
+      return true; // Fresh registry pull
+    }
+    // Fallback on socket/permission warning
+    try {
+      await pullImage(imageName);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
  * Spawns a sandboxed ephemeral container for a pipeline stage.
  * 
  * @param {object} options
@@ -44,7 +70,10 @@ async function executeStageContainer({ stageName, stageConfig, workspacePath, bi
   const runCmd = stageConfig.run || 'echo "No command specified"';
 
   try {
-    await pullImage(containerImage);
+    const wasPulled = await ensureImageLocally(containerImage);
+    if (wasPulled && onLog) {
+      onLog(`[${stageName.toUpperCase()}] Pulled container image '${containerImage}'.\n`);
+    }
 
     const container = await docker.createContainer({
       Image: containerImage,
@@ -84,5 +113,6 @@ async function executeStageContainer({ stageName, stageConfig, workspacePath, bi
 module.exports = {
   docker,
   pullImage,
+  ensureImageLocally,
   executeStageContainer
 };

@@ -110,6 +110,31 @@ Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
   logger.error('Failed to initialize Redis Adapter for Socket.io:', err);
 });
 
+// Socket.io Room Lifecycle for Real-Time Streaming
+io.on('connection', (socket) => {
+  logger.info(`WebSocket client connected: ${socket.id}`);
+
+  socket.on('join-build', (buildId) => {
+    if (buildId) {
+      const room = `build-${buildId}`;
+      socket.join(room);
+      logger.info(`Socket ${socket.id} joined room ${room}`);
+    }
+  });
+
+  socket.on('leave-build', (buildId) => {
+    if (buildId) {
+      const room = `build-${buildId}`;
+      socket.leave(room);
+      logger.info(`Socket ${socket.id} left room ${room}`);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    logger.info(`WebSocket client disconnected: ${socket.id}`);
+  });
+});
+
 // Expose io instance to Express app
 app.set('io', io);
 

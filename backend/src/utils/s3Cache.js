@@ -24,6 +24,10 @@ const BUCKET_NAME = 'magnus-caches';
  */
 async function uploadCacheToMinIO(cacheKey, filePath) {
   try {
+    if (!fs.existsSync(filePath)) {
+      logger.info(`Cache file ${filePath} does not exist. Skipping upload.`);
+      return false;
+    }
     const fileStream = fs.createReadStream(filePath);
     logger.info(`Uploading cache ${cacheKey}.tar.gz to MinIO...`);
     
@@ -33,8 +37,10 @@ async function uploadCacheToMinIO(cacheKey, filePath) {
       Body: fileStream
     }));
     logger.info(`Successfully uploaded cache ${cacheKey}.tar.gz`);
+    return true;
   } catch (error) {
     logger.error(`Failed to upload cache to MinIO:`, error);
+    return false;
   }
 }
 

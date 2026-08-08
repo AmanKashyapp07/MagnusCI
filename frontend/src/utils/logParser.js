@@ -6,9 +6,23 @@ function parseTimeToSeconds(timeStr) {
   return null;
 }
 
+// Fast Memoization Cache for High-Frequency Terminal Log Streams
+const ansiMemoCache = new Map();
+const MAX_MEMO_ENTRIES = 2000;
+
 function stripAnsi(str) {
   if (!str) return "";
-  return str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+  if (ansiMemoCache.has(str)) {
+    return ansiMemoCache.get(str);
+  }
+
+  const clean = str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+  if (ansiMemoCache.size >= MAX_MEMO_ENTRIES) {
+    const firstKey = ansiMemoCache.keys().next().value;
+    ansiMemoCache.delete(firstKey);
+  }
+  ansiMemoCache.set(str, clean);
+  return clean;
 }
 
 function processRawLines(rawLogs) {

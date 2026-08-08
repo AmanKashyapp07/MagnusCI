@@ -131,4 +131,15 @@
     background-color: color-mix(in srgb, var(--status-failed) 15%, transparent);
     color: var(--status-failed);
   }
+
+  /* High-Performance Terminal Virtualization & Render Caching */
+  .terminal-line {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 24px;
+  }
+
+  .virtual-log-container {
+    contain: strict;
+    will-change: transform, scroll-position;
+  }
 }
