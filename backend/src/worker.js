@@ -13,7 +13,7 @@ const fs = require('fs').promises;
 const pool = require('./db');
 const config = require('./config/env');
 const { parseDAG, executeDAG } = require('./utils/dag');
-const { saveCache, downloadCache } = require('./utils/cache');
+const { saveCache, restoreCache } = require('./utils/cache');
 const { updateGitHubStatus } = require('./utils/githubStatus');
 const {
   styles,
@@ -67,6 +67,11 @@ const executeStageContainer = async ({ stageName, stageConfig, workspacePath, bi
       Image: imageName,
       Cmd: ['/bin/sh', '-c', runCommand],
       WorkingDir: '/workspace',
+      Env: [
+        'CI=true',
+        'MAGNUS_CI=true',
+        'CONTINUOUS_INTEGRATION=true'
+      ],
       HostConfig: {
         Binds: binds,
         Memory: 2 * 1024 * 1024 * 1024, // 2GB memory limit
@@ -88,8 +93,27 @@ const executeStageContainer = async ({ stageName, stageConfig, workspacePath, bi
       onLog(`[${stageName.toUpperCase()}] ${chunk.toString('utf8')}`);
     });
 
-    const waitResult = await container.wait();
-    const exitCode = waitResult.StatusCode;
+    const STAGE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minute max timeout per stage
+    let timeoutId = null;
+
+    const waitPromise = container.wait();
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(`Stage '${stageName}' timed out after 300s`));
+      }, STAGE_TIMEOUT_MS);
+    });
+
+    let exitCode = 1;
+    let timedOut = false;
+    try {
+      const waitResult = await Promise.race([waitPromise, timeoutPromise]);
+      exitCode = waitResult.StatusCode;
+    } catch (err) {
+      timedOut = true;
+      onLog(logEngine(`${styles.red}Stage '${stageName}' exceeded 300s timeout ceiling. Force removing container.${styles.reset}\n`));
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
 
     try {
       await container.remove({ force: true });
@@ -97,11 +121,92 @@ const executeStageContainer = async ({ stageName, stageConfig, workspacePath, bi
       // Container cleanup fallback
     }
 
-    return { success: exitCode === 0, exitCode, container: null };
+    return { success: !timedOut && exitCode === 0, exitCode: timedOut ? 124 : exitCode, container: null };
   } catch (err) {
-    logError(`Container execution failed for stage '${stageName}':`, err);
-    onLog(logEngine(`${styles.red}Container execution failed for stage '${stageName}': ${err.message}${styles.reset}\n`));
+    onLog(logError(`Error executing stage container '${stageName}': ${err.message}\n`));
     return { success: false, exitCode: 1, container: null };
+  }
+};
+
+/**
+ * BullMQ Worker Processing Function
+ */
+const processBuildJob = async (job) => {
+  const { buildId, repositoryId, commitHash } = job.data;
+  logWorker(`Processing Build #${buildId} for Repository #${repositoryId}...`);
+
+  let activeContainers = {};
+  let statsInterval = null;
+  let workspacePath = '';
+  let buildLogs = '';
+
+  try {
+    // 1. Update Build Status to RUNNING
+    await pool.query(
+      "UPDATE builds SET status = 'RUNNING', started_at = NOW() WHERE id = $1",
+      [buildId]
+    );
+
+    const repoRes = await pool.query("SELECT github_url, name FROM repositories WHERE id = $1", [repositoryId]);
+    if (repoRes.rows.length === 0) {
+      throw new Error(`Repository #${repositoryId} not found in database.`);
+    }
+    const { github_url: repoUrl, name: repoName } = repoRes.rows[0];
+
+    // Update GitHub commit status to pending
+    await updateGitHubStatus(repoUrl, commitHash, 'pending', 'Magnus CI build in progress');
+
+    // 2. Allocate Workspace Directory
+    workspacePath = path.join('/tmp', 'magnus-builds', `workspace-${buildId}-${Date.now()}`);
+    await fs.mkdir(workspacePath, { recursive: true });
+    logWorker(`Allocated workspace path: ${workspacePath}`);
+
+    buildLogs += logEngine(`Allocated isolated build workspace: ${styles.cyan}${workspacePath}${styles.reset}\n`);
+    await saveLogs(buildId, buildLogs);
+
+    // 3. Clone Repository
+    logWorker(`Cloning ${repoUrl} @ ${commitHash.slice(0, 7)}...`);
+    buildLogs += logEngine(`Cloning repository ${styles.cyan}${repoUrl}${styles.reset} (commit ${styles.yellow}${commitHash.slice(0, 7)}${styles.reset})...\n`);
+    await saveLogs(buildId, buildLogs);
+
+    const git = simpleGit();
+    await git.clone(repoUrl, workspacePath);
+
+    if (commitHash) {
+      try {
+        await simpleGit(workspacePath).checkout(commitHash);
+        logWorker(`Isolated commit ${commitHash}.`);
+      } catch (err) {
+        logWorker(`Commit checkout warning (using target branch tip): ${err.message}`);
+      }
+    }
+
+    // 4. Auto-Revert Guard Verification
+    const isRevertPushed = await handleRevertCommit(workspacePath, repoUrl, commitHash);
+    if (isRevertPushed) {
+      buildLogs += logEngine(`Revert commit detected. Auto-revert circuit breaker triggered.\n`);
+      await saveLogs(buildId, buildLogs);
+    }
+
+    // 5. Detect Context & Cache Strategy
+    const { language, imageName: defaultImage, runCommand: defaultCmd } = await detectProjectContext(workspacePath);
+    logWorker(`Detected context: Language=${language}, Image=${defaultImage}`);
+    buildLogs += logEngine(`Detected context: Language=${styles.cyan}${language}${styles.reset}, Base Image=${styles.cyan}${defaultImage}${styles.reset}\n`);
+
+    // 6. Restore Dependency Cache if lockfile present
+    let cacheHash = null;
+    try {
+      logWorker(`Resolving dependency caching strategy...`);
+      const cacheRes = await restoreCache(workspacePath, language, repositoryId);
+      cacheHash = cacheRes.cacheHash;
+      logWorker(`Cache result: ${cacheRes.message}`);
+      buildLogs += logEngine(`Dependency cache: ${cacheRes.message}\n`);
+      await saveLogs(buildId, buildLogs);
+    } catch (cacheErr) {
+      logError(`Cache restoration encountered non-fatal issue:`, cacheErr);
+    }
+  } catch (err) {
+    logError(`Build failed during initialization:`, err);
   }
 };
 

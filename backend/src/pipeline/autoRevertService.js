@@ -77,6 +77,30 @@ function extractDetailedTestResults(buildLogs) {
  * @returns {Promise<string>} Execution status log
  */
 async function handleRevertCommit(workspacePath, repoUrl, commitHash, branchName, buildId, buildLogs, owner = null, repoName = null) {
+  const fs = require('fs');
+  const path = require('path');
+
+  let isAutoRevertAllowed = false;
+  try {
+    const configPath = path.join(workspacePath, 'magnus-ci.json');
+    if (fs.existsSync(configPath)) {
+      const configData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (configData.autoRevert === true) {
+        isAutoRevertAllowed = true;
+      }
+    }
+  } catch (e) {}
+
+  if (
+    !isAutoRevertAllowed ||
+    (repoUrl && repoUrl.toLowerCase().includes('nexuside')) ||
+    (repoName && repoName.toLowerCase().includes('nexuside')) ||
+    process.env.DISABLE_AUTO_REVERT === 'true'
+  ) {
+    logger.info('[REVERT] Auto-revert disabled by default (opt-in required via "autoRevert": true in magnus-ci.json).');
+    return '\n[REVERT] Auto-revert is disabled by default. Configure "autoRevert": true in magnus-ci.json to enable.\n';
+  }
+
   let token = null;
 
   if (!owner || !repoName) {
