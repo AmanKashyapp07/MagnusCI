@@ -93,8 +93,6 @@ async function handleRevertCommit(workspacePath, repoUrl, commitHash, branchName
 
   if (
     !isAutoRevertAllowed ||
-    (repoUrl && repoUrl.toLowerCase().includes('nexuside')) ||
-    (repoName && repoName.toLowerCase().includes('nexuside')) ||
     process.env.DISABLE_AUTO_REVERT === 'true'
   ) {
     logger.info('[REVERT] Auto-revert disabled by default (opt-in required via "autoRevert": true in magnus-ci.json).');
