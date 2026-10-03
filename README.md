@@ -248,7 +248,7 @@ cd frontend && npm run dev
 
 ## Testing & Quality Assurance
 
-MagnusCI includes a master test runner [`test.sh`](file:///Users/amankashyap/Documents/ci-cd-engine/test.sh) covering unit tests, integration workflows, and browser tests:
+MagnusCI includes a master test runner `test.sh` covering unit tests, integration workflows, and browser tests:
 
 ```bash
 # Run the complete test suite

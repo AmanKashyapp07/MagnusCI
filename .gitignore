@@ -1,20 +1,74 @@
-node_modules/
-.DS_Store
+# Environment & Secrets
 .env
-reports/
-Complete Guide_ Collaborative Cloud IDE & Sandbox.pdf
-Complete Guide_ Git-Triggered Headless CI_CD Automation Engine.pdf
-Complete Guide_ GitHub Actions for CI_CD Automation.pdf
-Complete Guide_ GitHub Codespaces for Cloud IDE.pdf
+.env.*
+*.env
+deploy.env
+*.key
+*.pem
+*.id_rsa
+id_rsa*
+*.pub
+
+# Dependencies
+node_modules/
+**/node_modules/
+.pnpm-store/
+
+# Build & Dist Artifacts
+dist/
+**/dist/
+build/
+**/build/
+.last_build_hash
+**/.last_build_hash
+.last_pkg_hash
+**/.last_pkg_hash
+
+# Runtime Scratch & Cache Workspaces
 backend/temp_builds/
 temp_builds/
 backend/caches/
 caches/
 backend/public/artifacts/
-Interview-Prep/
-*.pem
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing & Test Coverage Reports
 test-results/
 testing/test-results/
 playwright-report/
 testing/playwright-report/
 .playwright/
+coverage/
+.nyc_output/
+reports/
+
+# Operating System & Editor Files
+.DS_Store
+**/.DS_Store
+Thumbs.db
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Internal Interview Prep, Planning & Study Materials
+guide.md
+plan.md
+context.md
+/microsoft/
+microsoft/
+interview/
+Interview-Prep/
+*.docx
+*.pdf
+Complete Guide_*.pdf
+*.tmp
+*.bak
