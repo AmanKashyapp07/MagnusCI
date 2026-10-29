@@ -6,9 +6,19 @@
  */
 
 const Docker = require('dockerode');
+const fsSync = require('fs');
+const path = require('path');
 const { logError } = require('../utils/logger');
 
-const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+const getDockerSocket = () => {
+  if (process.env.DOCKER_SOCKET) return process.env.DOCKER_SOCKET;
+  if (fsSync.existsSync('/var/run/docker.sock')) return '/var/run/docker.sock';
+  const homeSock = path.join(process.env.HOME || '', '.docker/run/docker.sock');
+  if (fsSync.existsSync(homeSock)) return homeSock;
+  return '/var/run/docker.sock';
+};
+
+const docker = new Docker({ socketPath: getDockerSocket() });
 
 /**
  * Programmatically pulls a Docker container image from a registry.

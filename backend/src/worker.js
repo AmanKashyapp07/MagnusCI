@@ -1,18 +1,15 @@
-/**
- * MagnusCI Worker Process Entrypoint
- * 
- * Scalable BullMQ Queue Consumer for isolated containerized CI/CD builds.
- */
-
 const { Worker } = require('bullmq');
 const Redis = require('ioredis');
 const Docker = require('dockerode');
 const simpleGit = require('simple-git');
 const path = require('path');
 const fs = require('fs').promises;
+const { spawn } = require('child_process');
+const fsSync = require('fs');
 const pool = require('./db');
 const config = require('./config/env');
 const { parseDAG, executeDAG } = require('./utils/dag');
+const { validatePipelineStages, hasCycle } = require('./utils/dag');
 const { saveCache, restoreCache } = require('./utils/cache');
 const { updateGitHubStatus } = require('./utils/githubStatus');
 const {
@@ -29,13 +26,109 @@ const {
 const previewService = require('./services/previewService');
 const githubPrBot = require('./utils/githubPrBot');
 
+// ── Redis publisher for live log streaming ────────────────────────────────────
+// This publishes build-log chunks and build-status changes to the Redis channel
+// that index.js subscribes to and forwards into Socket.IO rooms.
+const pubRedis = new Redis({
+  host: config.REDIS_HOST,
+  port: config.REDIS_PORT,
+  lazyConnect: false
+});
+
+pubRedis.on('error', (err) => {
+  logError('Worker Redis pub client error:', err);
+});
+
+/**
+ * Publishes a log chunk to the Redis channel so the API gateway can
+ * forward it to the correct Socket.IO room (build-<buildId>).
+ */
+const publishLog = (buildId, chunk) => {
+  try {
+    pubRedis.publish('magnus:build-log', JSON.stringify({ buildId: String(buildId), log: chunk }));
+  } catch (e) {
+    // Non-fatal — log still persisted to DB
+  }
+};
+
+/**
+ * Publishes a build-status update so the API gateway can notify connected clients.
+ */
+const publishStatus = (buildId, status) => {
+  try {
+    pubRedis.publish('magnus:build-status', JSON.stringify({ buildId: String(buildId), status }));
+  } catch (e) {
+    // Non-fatal
+  }
+};
+
+// Auto-detect Docker Socket
+const getDockerSocket = () => {
+  if (process.env.DOCKER_SOCKET) return process.env.DOCKER_SOCKET;
+  if (fsSync.existsSync('/var/run/docker.sock')) return '/var/run/docker.sock';
+  const homeSock = path.join(process.env.HOME || '', '.docker/run/docker.sock');
+  if (fsSync.existsSync(homeSock)) return homeSock;
+  return '/var/run/docker.sock';
+};
+
 // Initialize Docker Client Instance
-const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+const docker = new Docker({ socketPath: getDockerSocket() });
+
+let isDockerAvailable = null;
+const checkDockerDaemon = async () => {
+  if (isDockerAvailable !== null) return isDockerAvailable;
+  try {
+    await docker.ping();
+    isDockerAvailable = true;
+    logWorker('Connected to Docker Engine daemon.');
+  } catch (e) {
+    isDockerAvailable = false;
+    logWorker(`Docker daemon not running at ${getDockerSocket()}; using local sandbox runner fallback.`);
+  }
+  return isDockerAvailable;
+};
 
 // Container Sandbox Execution
 const executeStageContainer = async ({ stageName, stageConfig, workspacePath, binds, onLog }) => {
   const imageName = stageConfig.image || 'node:20-alpine';
   const runCommand = stageConfig.run || 'echo "No command specified"';
+
+  const hasDocker = await checkDockerDaemon();
+  if (!hasDocker) {
+    logWorker(`Executing stage '${stageName}' via local execution sandbox in ${workspacePath}...`);
+    onLog(logEngine(`Executing stage '${styles.cyan}${stageName}${styles.reset}' in isolated process workspace...\n`));
+    onLog(logEngine(`Running command: ${styles.yellow}${runCommand}${styles.reset}\n`));
+
+    return new Promise((resolve) => {
+      const child = spawn('/bin/sh', ['-c', runCommand], {
+        cwd: workspacePath,
+        env: {
+          ...process.env,
+          CI: 'true',
+          MAGNUS_CI: 'true',
+          CONTINUOUS_INTEGRATION: 'true'
+        }
+      });
+
+      child.stdout.on('data', (chunk) => {
+        onLog(`[${stageName.toUpperCase()}] ${chunk.toString('utf8')}`);
+      });
+
+      child.stderr.on('data', (chunk) => {
+        onLog(`[${stageName.toUpperCase()}] ${chunk.toString('utf8')}`);
+      });
+
+      child.on('close', (code) => {
+        const success = code === 0;
+        resolve({ success, exitCode: code || 0, container: null });
+      });
+
+      child.on('error', (err) => {
+        onLog(logError(`Error executing local stage '${stageName}': ${err.message}\n`));
+        resolve({ success: false, exitCode: 1, container: null });
+      });
+    });
+  }
 
   try {
     let wasPulled = false;
@@ -128,63 +221,100 @@ const executeStageContainer = async ({ stageName, stageConfig, workspacePath, bi
   }
 };
 
-/**
- * BullMQ Worker Processing Function
- */
-const processBuildJob = async (job) => {
-  const { buildId, repositoryId, commitHash } = job.data;
-  logWorker(`Processing Build #${buildId} for Repository #${repositoryId}...`);
+// Redis Connection Options
+const connection = {
+  host: config.REDIS_HOST,
+  port: config.REDIS_PORT
+};
 
+logWorker(`Initializing Worker Queue Consumer on Redis host: ${config.REDIS_HOST}:${config.REDIS_PORT}`);
+
+const worker = new Worker('build-queue', async (job) => {
+  const buildId = job.data.buildId;
+  const githubUrl = job.data.githubUrl || job.data.repoUrl;
+  const commitHash = job.data.commitHash;
+  const branchName = job.data.branchName || 'main';
+  const repositoryId = job.data.repositoryId || job.data.repoId;
+  // When set, the worker skips git clone and uses this pre-staged path directly.
+  // Used by demo-trigger.js to avoid network dependency during presentations.
+  const overrideWorkspacePath = job.data.overrideWorkspacePath || null;
+  
+  let repoName = job.data.repoName;
+  let owner = job.data.owner;
+
+  if (!repoName && githubUrl) {
+    const parts = githubUrl.replace(/\.git$/, '').split('/');
+    repoName = parts[parts.length - 1] || 'repository';
+    owner = parts[parts.length - 2] || 'user';
+  }
+
+  logWorker(`Job Picked Up | Build ID: ${buildId}`);
+  logWorker(`Repo: ${githubUrl} @ [${commitHash?.slice(0, 7)}]`);
+
+  const targetUrl = `${config.FRONTEND_URL}/ci/dashboard`;
+  let workspacePath = null;
+  let buildLogs = '';
   let activeContainers = {};
   let statsInterval = null;
-  let workspacePath = '';
-  let buildLogs = '';
 
   try {
-    // 1. Update Build Status to RUNNING
+    // 1. Mark build status as RUNNING in PostgreSQL
     await pool.query(
       "UPDATE builds SET status = 'RUNNING', started_at = NOW() WHERE id = $1",
       [buildId]
     );
+    logWorker(`Build status forced to RUNNING.`);
+    publishStatus(buildId, 'RUNNING');
+    
+    buildLogs += logEngine(`Job #${buildId} started for repository ${repoName} (${branchName}).\n`);
+    await saveLogs(buildId, buildLogs);
 
-    const repoRes = await pool.query("SELECT github_url, name FROM repositories WHERE id = $1", [repositoryId]);
-    if (repoRes.rows.length === 0) {
-      throw new Error(`Repository #${repositoryId} not found in database.`);
+    // 2. Set GitHub Commit Status to Pending
+    if (owner && repoName && commitHash) {
+      await updateGitHubStatus(owner, repoName, commitHash, 'pending', 'Pipeline execution underway...', targetUrl);
     }
-    const { github_url: repoUrl, name: repoName } = repoRes.rows[0];
 
-    // Update GitHub commit status to pending
-    await updateGitHubStatus(repoUrl, commitHash, 'pending', 'Magnus CI build in progress');
+    // 3. Prepare workspace path
+    const baseWorkspace = process.env.HOST_WORKSPACE_PATH || '/tmp';
 
-    // 2. Allocate Workspace Directory
-    workspacePath = path.join('/tmp', 'magnus-builds', `workspace-${buildId}-${Date.now()}`);
-    await fs.mkdir(workspacePath, { recursive: true });
-    logWorker(`Allocated workspace path: ${workspacePath}`);
+    if (overrideWorkspacePath) {
+      // Demo / local trigger: workspace already staged, skip network clone.
+      workspacePath = overrideWorkspacePath;
+      logWorker(`Using pre-staged workspace (demo mode): ${workspacePath}`);
+      buildLogs += logEngine(`Using pre-staged workspace (demo mode): ${styles.cyan}${workspacePath}${styles.reset}\n`);
+      await saveLogs(buildId, buildLogs);
+    } else {
+      workspacePath = path.join(baseWorkspace, `workspace-${buildId}-${Date.now()}`);
+      await fs.mkdir(workspacePath, { recursive: true });
+      logWorker(`Created workspace path: ${workspacePath}`);
 
-    buildLogs += logEngine(`Allocated isolated build workspace: ${styles.cyan}${workspacePath}${styles.reset}\n`);
-    await saveLogs(buildId, buildLogs);
+      // 4. Clone GitHub repository commit target
+      logWorker(`Cloning commit hash ${commitHash} from ${githubUrl}...`);
+      buildLogs += logEngine(`Cloning commit target ${styles.cyan}${commitHash?.slice(0, 7)}${styles.reset}...\n`);
+      await saveLogs(buildId, buildLogs);
 
-    // 3. Clone Repository
-    logWorker(`Cloning ${repoUrl} @ ${commitHash.slice(0, 7)}...`);
-    buildLogs += logEngine(`Cloning repository ${styles.cyan}${repoUrl}${styles.reset} (commit ${styles.yellow}${commitHash.slice(0, 7)}${styles.reset})...\n`);
-    await saveLogs(buildId, buildLogs);
-
-    const git = simpleGit();
-    await git.clone(repoUrl, workspacePath);
-
-    if (commitHash) {
-      try {
-        await simpleGit(workspacePath).checkout(commitHash);
-        logWorker(`Isolated commit ${commitHash}.`);
-      } catch (err) {
-        logWorker(`Commit checkout warning (using target branch tip): ${err.message}`);
+      if (!githubUrl) {
+        throw new Error("Target repository URL (githubUrl/repoUrl) is undefined in queue job payload.");
       }
-    }
 
-    // 4. Auto-Revert Guard Verification
-    const isRevertPushed = await handleRevertCommit(workspacePath, repoUrl, commitHash);
-    if (isRevertPushed) {
-      buildLogs += logEngine(`Revert commit detected. Auto-revert circuit breaker triggered.\n`);
+      const git = simpleGit();
+      try {
+        await git.clone(githubUrl, workspacePath, [
+          '--depth', '1',
+          '--single-branch',
+          '--branch', branchName || 'main',
+          '--no-tags'
+        ]);
+      } catch {
+        await git.clone(githubUrl, workspacePath);
+      }
+      const gitRepo = simpleGit(workspacePath);
+      if (commitHash) {
+        await gitRepo.checkout(commitHash).catch(() => {});
+      }
+
+      logWorker(`Target commit successfully isolated.`);
+      buildLogs += logEngine(`Repository workspace setup complete.\n`);
       await saveLogs(buildId, buildLogs);
     }
 
@@ -205,118 +335,24 @@ const processBuildJob = async (job) => {
     } catch (cacheErr) {
       logError(`Cache restoration encountered non-fatal issue:`, cacheErr);
     }
-  } catch (err) {
-    logError(`Build failed during initialization:`, err);
-  }
-};
-
-// Redis Connection Options
-const connection = {
-  host: config.REDIS_HOST,
-  port: config.REDIS_PORT
-};
-
-logWorker(`Initializing Worker Queue Consumer on Redis host: ${config.REDIS_HOST}:${config.REDIS_PORT}`);
-
-const worker = new Worker('build-queue', async (job) => {
-  const buildId = job.data.buildId;
-  const githubUrl = job.data.githubUrl || job.data.repoUrl;
-  const commitHash = job.data.commitHash;
-  const branchName = job.data.branchName || 'main';
-  const repositoryId = job.data.repositoryId || job.data.repoId;
-  
-  let repoName = job.data.repoName;
-  let owner = job.data.owner;
-
-  if (!repoName && githubUrl) {
-    const parts = githubUrl.replace(/\.git$/, '').split('/');
-    repoName = parts[parts.length - 1] || 'repository';
-    owner = parts[parts.length - 2] || 'user';
-  }
-
-  logWorker(`Job Picked Up | Build ID: ${buildId}`);
-  logWorker(`Repo: ${githubUrl} @ [${commitHash?.slice(0, 7)}]`);
-
-  const targetUrl = `http://magnus-ci.online/dashboard`;
-  let workspacePath = null;
-  let buildLogs = '';
-  let activeContainers = {};
-  let statsInterval = null;
-
-  try {
-    // 1. Mark build status as RUNNING in PostgreSQL
-    await pool.query(
-      "UPDATE builds SET status = 'RUNNING', started_at = NOW() WHERE id = $1",
-      [buildId]
-    );
-    logWorker(`Build status forced to RUNNING.`);
-    
-    buildLogs += logEngine(`Job #${buildId} started for repository ${repoName} (${branchName}).\n`);
-    await saveLogs(buildId, buildLogs);
-
-    // 2. Set GitHub Commit Status to Pending
-    if (owner && repoName && commitHash) {
-      await updateGitHubStatus(owner, repoName, commitHash, 'pending', 'Pipeline execution underway...', targetUrl);
-    }
-
-    // 3. Prepare workspace path
-    const baseWorkspace = process.env.HOST_WORKSPACE_PATH || '/tmp';
-    workspacePath = path.join(baseWorkspace, `workspace-${buildId}-${Date.now()}`);
-    await fs.mkdir(workspacePath, { recursive: true });
-    logWorker(`Created workspace path: ${workspacePath}`);
-
-    // 4. Clone GitHub repository commit target
-    logWorker(`Cloning commit hash ${commitHash} from ${githubUrl}...`);
-    buildLogs += logEngine(`Cloning commit target ${styles.cyan}${commitHash?.slice(0, 7)}${styles.reset}...\n`);
-    await saveLogs(buildId, buildLogs);
-
-    if (!githubUrl) {
-      throw new Error("Target repository URL (githubUrl/repoUrl) is undefined in queue job payload.");
-    }
-
-    const git = simpleGit();
-    try {
-      await git.clone(githubUrl, workspacePath, [
-        '--depth', '1',
-        '--single-branch',
-        '--branch', branchName || 'main',
-        '--no-tags'
-      ]);
-    } catch {
-      await git.clone(githubUrl, workspacePath);
-    }
-    const gitRepo = simpleGit(workspacePath);
-    if (commitHash) {
-      await gitRepo.checkout(commitHash).catch(() => {});
-    }
-
-    logWorker(`Target commit successfully isolated.`);
-    buildLogs += logEngine(`Repository workspace setup complete.\n`);
-    await saveLogs(buildId, buildLogs);
-
-    // 5. Detect Context & Cache Strategy
-    const { language, imageName: defaultImage, runCommand: defaultCmd } = await detectProjectContext(workspacePath);
-    logWorker(`Detected context: Language=${language}, Image=${defaultImage}`);
-    buildLogs += logEngine(`Detected context: Language=${styles.cyan}${language}${styles.reset}, Base Image=${styles.cyan}${defaultImage}${styles.reset}\n`);
-
-    // 6. Restore Dependency Cache if lockfile present
-    let cacheHash = null;
-    try {
-      logWorker(`Resolving dependency caching strategy...`);
-      const cacheRes = await downloadCache(workspacePath, language, repositoryId);
-      cacheHash = cacheRes.cacheHash;
-      logWorker(`Cache result: ${cacheRes.message}`);
-      buildLogs += logEngine(`Dependency cache: ${cacheRes.message}\n`);
-      await saveLogs(buildId, buildLogs);
-    } catch (cacheErr) {
-      logError(`Cache restoration encountered non-fatal issue:`, cacheErr);
-    }
 
     // 7. Parse Pipeline Stages & DAG Configuration
     const pipelineStages = parseDAG(workspacePath, language, defaultImage, defaultCmd);
     const stageNames = Object.keys(pipelineStages);
     logWorker(`Pipeline stages loaded: ${stageNames.join(' -> ')}`);
     buildLogs += logEngine(`Topological DAG stages parsed: ${styles.bright}${stageNames.join(' -> ')}${styles.reset}\n`);
+
+    // 7a. Validate pipeline before launching containers
+    const validationError = validatePipelineStages(pipelineStages);
+    if (validationError) {
+      throw new Error(`Pipeline validation failed: ${validationError}`);
+    }
+    if (hasCycle(pipelineStages)) {
+      throw new Error('Pipeline validation failed: Cyclic dependency detected in stage graph.');
+    }
+    logWorker(`Pipeline validation passed. ${stageNames.length} stage(s) ready.`);
+    buildLogs += logEngine(`Pipeline validation passed. Cycle check: ${styles.green}OK${styles.reset}\n`);
+    await saveLogs(buildId, buildLogs);
 
     const binds = [`${workspacePath}:/workspace`];
 
@@ -345,6 +381,11 @@ const worker = new Worker('build-queue', async (job) => {
     let lastSavedLogs = '';
     const logInterval = setInterval(async () => {
       if (buildLogs !== lastSavedLogs) {
+        // Publish the new chunk (diff) to Redis for live streaming
+        const newChunk = buildLogs.slice(lastSavedLogs.length);
+        if (newChunk) {
+          publishLog(buildId, newChunk);
+        }
         lastSavedLogs = buildLogs;
         await saveLogs(buildId, buildLogs);
       }
@@ -404,6 +445,7 @@ const worker = new Worker('build-queue', async (job) => {
         [buildId]
       );
       logSuccess(`Build ID: ${buildId} completed with status SUCCESS.`);
+      publishStatus(buildId, 'SUCCESS');
 
       if (owner && repoName && commitHash) {
         await updateGitHubStatus(owner, repoName, commitHash, 'success', 'All pipeline stages passed cleanly.', targetUrl);
@@ -440,6 +482,8 @@ const worker = new Worker('build-queue', async (job) => {
     } catch (dbErr) {
       logError(`Failed to update build status in DB:`, dbErr);
     }
+
+    publishStatus(buildId, 'FAILED');
 
     if (owner && repoName && commitHash) {
       try {

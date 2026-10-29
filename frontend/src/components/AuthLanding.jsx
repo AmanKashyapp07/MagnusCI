@@ -1,6 +1,21 @@
 import React from 'react';
 
 export default function AuthLanding({ dbStatus = "connected", initiateGithubLogin }) {
+  const handleDemoLogin = async () => {
+    try {
+      const res = await fetch('/api/auth/demo');
+      const data = await res.json();
+      if (data.token) {
+        localStorage.setItem("magnus_ci_token", data.token);
+        localStorage.setItem("token", data.token);
+        window.location.href = "/ci/dashboard";
+      }
+    } catch (err) {
+      console.error("[DemoLogin] Error:", err);
+      window.location.href = "/api/auth/demo";
+    }
+  };
+
   return (
     <>
       <style dangerouslySetInnerHTML={{__html: `
@@ -96,21 +111,32 @@ export default function AuthLanding({ dbStatus = "connected", initiateGithubLogi
                 MagnusCI integrates secure webhook validation, a high-performance DAG parallel execution engine, and serverless Kubernetes runners to produce auditable, deterministic build artifacts.
               </p>
               
-              <div className="flex flex-col sm:flex-row items-center gap-4">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                <button 
+                  onClick={handleDemoLogin}
+                  className="anthropic-btn group flex items-center justify-center gap-3 text-base px-6 py-3.5 rounded-lg font-medium w-full sm:w-auto shadow-md cursor-pointer"
+                  style={{ backgroundColor: '#D97757', color: '#fff' }}
+                >
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                  </svg>
+                  Interviewer Demo Access
+                  <span className="inline-block transition-transform duration-300 group-hover:translate-x-1 ml-1 opacity-90">→</span>
+                </button>
+
                 <button 
                   onClick={initiateGithubLogin}
-                  className="anthropic-btn group flex items-center justify-center gap-3 text-base px-6 py-3.5 rounded-lg font-medium w-full sm:w-auto"
+                  className="flex items-center justify-center gap-3 text-base px-6 py-3.5 rounded-lg font-medium w-full sm:w-auto border border-[var(--border-subtle)] bg-[var(--bg-card)] hover:border-[var(--text-primary)] transition-all cursor-pointer text-[var(--text-primary)]"
                 >
                   <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="opacity-90">
                     <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
                   </svg>
                   Connect with GitHub
-                  <span className="inline-block transition-transform duration-300 group-hover:translate-x-1 ml-1 opacity-70">→</span>
                 </button>
-                <span className="text-xs text-[var(--text-secondary)] mt-2 sm:mt-0 font-medium tracking-wide">
-                  Requires repository access
-                </span>
               </div>
+              <span className="text-xs text-[var(--text-secondary)] mt-3 block font-medium tracking-wide">
+                1-Click Instant Demo Login (or connect with GitHub OAuth)
+              </span>
             </div>
           </div>
 

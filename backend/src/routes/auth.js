@@ -6,6 +6,8 @@ const router = express.Router();
 
 router.get('/github', authController.initiateGithubLogin.bind(authController));
 router.get('/github/callback', authController.handleGithubCallback.bind(authController));
+router.get('/demo', authController.demoLogin.bind(authController));
+router.post('/demo', authController.demoLogin.bind(authController));
 router.get('/me', authenticateToken, authController.getProfile.bind(authController));
 
 module.exports = router;

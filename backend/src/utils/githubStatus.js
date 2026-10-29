@@ -29,8 +29,7 @@ async function updateGitHubStatus(owner, repo, sha, state, description, targetUr
     token = process.env.GITHUB_TOKEN;
   }
 
-  if (!token) {
-    console.warn(`No GitHub token available to post status badge for ${owner}/${repo}@${sha}`);
+  if (!token || token === 'demo_token' || token.startsWith('demo')) {
     return;
   }
 

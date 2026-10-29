@@ -3,6 +3,8 @@
 .env.*
 *.env
 deploy.env
+!.env.example
+!**/.env.example
 *.key
 *.pem
 *.id_rsa
@@ -38,9 +40,7 @@ yarn-error.log*
 
 # Testing & Test Coverage Reports
 test-results/
-testing/test-results/
 playwright-report/
-testing/playwright-report/
 .playwright/
 coverage/
 .nyc_output/
@@ -62,9 +62,12 @@ Thumbs.db
 # Internal Interview Prep, Planning & Study Materials
 guide.md
 plan.md
+docs/plan.md
 context.md
 /microsoft/
 microsoft/
+docs/interview-prep/
+docs/interview-notes/
 interview/
 Interview-Prep/
 *.docx

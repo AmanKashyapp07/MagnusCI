@@ -40,6 +40,9 @@ app.use(['/api/webhooks', '/ci/api/webhooks'], webhookRoutes);
 app.use(['/api/auth', '/ci/api/auth'], authRoutes);
 app.use(previewRoutes);
 
+// Root redirect to ensure SPA basename matching
+app.get('/', (req, res) => res.redirect('/ci/'));
+
 // Static frontend SPA serving with high-speed local browser caching
 const frontendDistPath = path.join(__dirname, '../../frontend/dist');
 const fallbackDistPath = path.join(__dirname, '../public/dist');
@@ -106,9 +109,40 @@ const io = new Server(server, {
 const pubClient = createClient({ url: `redis://${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || 6379}` });
 const subClient = pubClient.duplicate();
 
-Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
+// Worker → Gateway log bridge subscriber
+const logBridgeClient = pubClient.duplicate();
+
+Promise.all([pubClient.connect(), subClient.connect(), logBridgeClient.connect()]).then(() => {
   io.adapter(createAdapter(pubClient, subClient));
   logger.info('⚡ Socket.io Redis adapter initialized for multi-pod scaling');
+
+  // Subscribe to the channel the worker publishes live log chunks on
+  logBridgeClient.subscribe('magnus:build-log', (message) => {
+    try {
+      const data = JSON.parse(message);
+      if (data && data.buildId) {
+        io.to(`build-${data.buildId}`).emit('build-log', data);
+      }
+    } catch (e) {
+      // Malformed message — ignore
+    }
+  });
+
+  // Subscribe to build-status updates from worker so UI polls are unnecessary
+  logBridgeClient.subscribe('magnus:build-status', (message) => {
+    try {
+      const data = JSON.parse(message);
+      if (data && data.buildId) {
+        io.to(`build-${data.buildId}`).emit('build-status', data);
+        // Also broadcast globally so the build list refreshes
+        io.emit('build-status', data);
+      }
+    } catch (e) {
+      // Malformed message — ignore
+    }
+  });
+
+  logger.info('✅ Redis build-log and build-status bridge subscriptions active');
 }).catch(err => {
   logger.error('Failed to initialize Redis Adapter for Socket.io:', err);
 });

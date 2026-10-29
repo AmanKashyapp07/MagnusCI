@@ -117,13 +117,13 @@ class RepoService {
     const GITHUB_WEBHOOK_SECRET = config.GITHUB_WEBHOOK_SECRET || 'magnus_webhook_secret_production_2026';
     const token = await this.getUserToken(userId);
 
-    if (!token) {
-      logger.info('No GitHub token provided, skipping automated webhook registration.');
+    if (!token || token.startsWith('demo') || (!process.env.PUBLIC_URL && config.FRONTEND_URL.includes('localhost'))) {
+      logger.info(`[LOCAL] Localhost mode: skipping automated GitHub webhook registration for ${owner}/${repo}.`);
       return;
     }
 
     try {
-      const publicBase = process.env.PUBLIC_URL || (config.FRONTEND_URL.includes('localhost') ? 'http://129.154.39.198/ci' : config.FRONTEND_URL);
+      const publicBase = process.env.PUBLIC_URL || config.FRONTEND_URL || 'http://localhost:5001/ci';
       const webhookUrl = `${publicBase}/api/webhooks/github`;
       const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks`, {
         method: 'POST',
@@ -159,9 +159,13 @@ class RepoService {
 
   async initGitHubStatusBadge(owner, repo, userId = null) {
     const token = await this.getUserToken(userId);
-    if (!token) return;
+    if (!token || token.startsWith('demo')) return;
 
     try {
+      if (!process.env.PUBLIC_URL && config.FRONTEND_URL.includes('localhost')) {
+        logger.info(`[LOCAL] Localhost mode: skipping external GitHub status badge API call for ${owner}/${repo}.`);
+        return;
+      }
       const commitsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=1`, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -174,7 +178,7 @@ class RepoService {
       const latestSha = commits[0]?.sha;
       if (!latestSha) return;
 
-      const publicBase = process.env.PUBLIC_URL || (config.FRONTEND_URL.includes('localhost') ? 'http://129.154.39.198/ci' : config.FRONTEND_URL);
+      const publicBase = process.env.PUBLIC_URL || config.FRONTEND_URL || 'http://localhost:5001/ci';
       await updateGitHubStatus(
         owner,
         repo,

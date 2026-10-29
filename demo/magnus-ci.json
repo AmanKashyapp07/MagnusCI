@@ -1,0 +1,24 @@
+{
+  "stages": {
+    "setup": {
+      "image": "alpine:latest",
+      "run": "echo '=== MagnusCI Demo Pipeline ===' && echo 'Stage: setup' && echo 'Timestamp:' $(date -u +%H:%M:%S) && echo 'Node: '$(hostname) && sleep 1 && echo 'Setup complete.'"
+    },
+    "test": {
+      "needs": ["setup"],
+      "image": "alpine:latest",
+      "run": "echo 'Stage: test' && echo 'Timestamp:' $(date -u +%H:%M:%S) && sleep 2 && echo 'Running unit tests...' && echo '  PASS src/queue.test.js' && echo '  PASS src/dag.test.js' && echo '  PASS src/webhook.test.js' && echo 'Tests: 12 passed, 0 failed' && echo 'Test stage complete.'"
+    },
+    "lint": {
+      "needs": ["setup"],
+      "image": "alpine:latest",
+      "run": "echo 'Stage: lint' && echo 'Timestamp:' $(date -u +%H:%M:%S) && sleep 2 && echo 'Running ESLint...' && echo '  Checked 18 source files' && echo '  0 errors, 0 warnings' && echo 'Lint stage complete.'"
+    },
+    "package": {
+      "needs": ["test", "lint"],
+      "image": "alpine:latest",
+      "run": "echo 'Stage: package' && echo 'Timestamp:' $(date -u +%H:%M:%S) && sleep 1 && echo 'Packaging build artifacts...' && echo '  dist/index.js         42 KB' && echo '  dist/worker.js        18 KB' && echo 'Package stage complete.'"
+    }
+  }
+}
+

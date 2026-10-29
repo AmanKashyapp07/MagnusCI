@@ -41,7 +41,8 @@ export default function DashboardPage({ token, user, fetchWithAuth, handleLogout
     message,
     fetchBuilds,
     handleRegisterRepo,
-    executeDeleteRepo
+    executeDeleteRepo,
+    handleTriggerBuild
   } = useDashboardData(token, fetchWithAuth, showToast);
 
   const {
@@ -141,6 +142,7 @@ export default function DashboardPage({ token, user, fetchWithAuth, handleLogout
               selectedRepo={selectedRepo}
               setSelectedRepo={setSelectedRepo}
               onDeleteRepo={handleDeleteRepoPrompt}
+              onTriggerBuild={handleTriggerBuild}
             />
           </section>
 

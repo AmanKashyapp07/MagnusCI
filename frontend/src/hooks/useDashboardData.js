@@ -140,6 +140,26 @@ export function useDashboardData(token, fetchWithAuth, showToast) {
     }
   };
 
+  const handleTriggerBuild = async (repo) => {
+    try {
+      showToast(`Triggering pipeline for ${repo.name}...`, "info");
+      const res = await fetchWithAuth("/builds/trigger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repositoryId: repo.id })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Pipeline #${data.buildId} triggered for ${repo.name}!`, "success");
+        setTimeout(fetchBuilds, 500);
+      } else {
+        showToast(data.error || "Failed to trigger pipeline.", "error");
+      }
+    } catch (err) {
+      showToast("Network error triggering pipeline.", "error");
+    }
+  };
+
   return {
     dbStatus,
     dbTime,
@@ -155,6 +175,7 @@ export function useDashboardData(token, fetchWithAuth, showToast) {
     fetchRepos,
     fetchBuilds,
     handleRegisterRepo,
-    executeDeleteRepo
+    executeDeleteRepo,
+    handleTriggerBuild
   };
 }

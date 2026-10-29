@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export default function RepoList({ repos, selectedRepo, setSelectedRepo, onDeleteRepo }) {
+export default function RepoList({ repos, selectedRepo, setSelectedRepo, onDeleteRepo, onTriggerBuild }) {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 5;
 
@@ -68,6 +68,21 @@ export default function RepoList({ repos, selectedRepo, setSelectedRepo, onDelet
                         isSelected ? 'text-[var(--bg-primary)] font-bold' : 'text-[var(--text-secondary)]'
                       }`}>ID:{repo.id}</span>
                     </div>
+                    {onTriggerBuild && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onTriggerBuild(repo);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-[var(--text-primary)] bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-all active:scale-95 flex items-center gap-1.5 text-xs font-semibold cursor-pointer shadow-sm"
+                        title="Trigger Pipeline Build"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                        <span>Run</span>
+                      </button>
+                    )}
                     {onDeleteRepo && (
                       <button
                         onClick={(e) => {

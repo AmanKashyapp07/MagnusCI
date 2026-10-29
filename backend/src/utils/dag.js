@@ -6,6 +6,33 @@ const fs = require('fs');
 const path = require('path');
 
 ////////////////////////////////////////////////////////////////////////////////
+// Function: validatePipelineStages
+// Purpose: Validates a parsed stages object before execution.
+//   - Rejects empty pipelines.
+//   - Rejects stages with unknown dependency names.
+//   - Returns null on success, or an error string describing the first problem.
+////////////////////////////////////////////////////////////////////////////////
+function validatePipelineStages(stages) {
+  const stageNames = Object.keys(stages);
+  if (stageNames.length === 0) {
+    return 'Pipeline has no stages defined.';
+  }
+
+  for (const name of stageNames) {
+    const needs = stages[name]?.needs;
+    if (!needs) continue;
+    const deps = Array.isArray(needs) ? needs : [needs];
+    for (const dep of deps) {
+      if (!stages[dep]) {
+        return `Stage '${name}' declares dependency on unknown stage '${dep}'.`;
+      }
+    }
+  }
+
+  return null; // valid
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Function: loadPipelineStages
 // Purpose: Reads configuration files or generates baseline presets.
 // Inputs: workspacePath (string), language (string), defaultImage (string)
@@ -138,5 +165,6 @@ module.exports = {
   loadPipelineStages,
   parseDAG: loadPipelineStages,
   hasCycle,
+  validatePipelineStages,
   executeDAG
 };

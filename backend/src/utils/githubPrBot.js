@@ -18,13 +18,14 @@ class GitHubPrBot {
       stages = [],
       previewUrl = null,
       artifacts = [],
-      baseUrl = process.env.BASE_URL || 'http://129.154.39.198/ci'
+      baseUrl = process.env.BASE_URL || 'http://localhost:5001/ci'
     } = data;
 
     const statusBadge = status === 'SUCCESS' ? '✅ **PASSED**' : '❌ **FAILED**';
     const shortSha = commitSha ? commitSha.substring(0, 7) : 'HEAD';
+    const previewBase = baseUrl.replace(/\/ci\/?$/, '');
     const formattedPreviewUrl = previewUrl 
-      ? (previewUrl.startsWith('http') ? previewUrl : `http://129.154.39.198${previewUrl}`)
+      ? (previewUrl.startsWith('http') ? previewUrl : `${previewBase}${previewUrl}`)
       : null;
 
     let markdown = `### ⚡ MagnusCI Pipeline Execution Report\n\n`;

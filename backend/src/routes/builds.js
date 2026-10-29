@@ -5,6 +5,8 @@ const authenticateToken = require('../middleware/authMiddleware');
 const router = express.Router();
 
 router.get('/', authenticateToken, buildsController.getBuilds.bind(buildsController));
+router.post('/trigger', authenticateToken, buildsController.triggerBuild.bind(buildsController));
+router.post('/repositories/:id/trigger', authenticateToken, buildsController.triggerBuild.bind(buildsController));
 router.get('/:id/logs', authenticateToken, buildsController.getBuildLogs.bind(buildsController));
 
 module.exports = router;

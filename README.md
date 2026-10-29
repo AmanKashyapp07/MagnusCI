@@ -6,7 +6,7 @@
 
 **Automated Testing** • **Parallel DAG Pipelines** • **Live Terminal Streaming** • **Instant Staging Previews** • **Kubernetes Orchestrated**
 
-[View Repository](https://github.com/AmanKashyapp07/ci-cd-engine) · [Live Production](http://129.154.39.198/ci/) · [Report Issue](https://github.com/AmanKashyapp07/ci-cd-engine/issues)
+[View Repository](https://github.com/AmanKashyapp07/ci-cd-engine) · [Localhost Dashboard](http://localhost:5001/ci/) · [Report Issue](https://github.com/AmanKashyapp07/ci-cd-engine/issues)
 
 ---
 
@@ -144,7 +144,7 @@ For engineering interviewers and systems reviewers, this section details the und
 
 * **Kernel RAM-Disk Workspaces:** Builds are provisioned directly in Linux kernel memory (`/dev/shm/magnus-builds/workspace-${buildId}`). This eliminates physical SSD read/write cycles and accelerates compilation and test suites significantly.
 * **Automatic Fallback:** If RAM headroom is insufficient, the allocator automatically falls back to host disk storage (`/tmp/magnus-builds`).
-* **Atomic Purge & Host Maintenance:** Upon build completion, workspace folders are recursively purged. A companion maintenance script (`cleanup.sh`) scheduled via cron reclaims host Docker cache layers and expired staging preview folders.
+* **Atomic Purge & Host Maintenance:** Upon build completion, workspace folders are recursively purged. Containers run with forced teardown to reclaim host Docker cache layers and release memory upon completion.
 </details>
 
 <details>
@@ -191,74 +191,61 @@ For engineering interviewers and systems reviewers, this section details the und
 
 ---
 
-## Live Environment & Deployment
+## Local Environment & Presentation Setup
 
-MagnusCI is deployed and running live on an Oracle Cloud VM orchestrated via Kubernetes (K3s):
+MagnusCI runs seamlessly on `localhost` with zero external cloud dependencies:
 
-**Live URL:** [http://129.154.39.198/ci/](http://129.154.39.198/ci/)
+**Local Dashboard URL:** [http://localhost:5001/ci/](http://localhost:5001/ci/)
 
-- **Reverse Proxy:** Nginx routes API traffic, serves static frontend assets, and handles WebSocket room upgrades.
-- **Microservice Namespaces:** API Gateway, BullMQ Worker Pool, PostgreSQL, Redis, and MinIO run in dedicated K3s pods with automated rolling deployments.
-- **Staging Previews:** Build outputs are isolated and served under `/preview/:buildId/` with automated TTL cleanup.
+- **Unified Single-Port Delivery:** Express API Gateway routes all API endpoints (`/api/*`), serves compiled React 19 frontend assets (`/ci/`), streams live WebSocket events (`/socket.io`), and hosts preview deployments (`/preview/:id/`).
+- **Interviewer Demo Mode:** 1-click **"Interviewer Demo Access"** bypasses external OAuth and logs in directly with preloaded sample workspaces and DAG pipeline execution history.
+- **Microservices Architecture:** API Gateway, BullMQ Worker Pool, PostgreSQL 16, and Redis 7 communicate over local IPC and network loopbacks.
 
 ---
 
-## Getting Started (Local Development)
+## Getting Started (1-Click Local Launch)
 
 ### Prerequisites
 - **Node.js**: v18 or higher
-- **Docker Engine**: Installed and running locally
-- **PostgreSQL**: v16 or higher
-- **Redis**: v7 or higher
+- **PostgreSQL**: v14 or higher (`brew services start postgresql@14`)
+- **Redis**: v7 or higher (`brew services start redis`)
 
 ### Quick Setup
 
+Start the entire platform with a single command:
+
 ```bash
-# 1. Clone the repository
-git clone https://github.com/AmanKashyapp07/ci-cd-engine.git
-cd ci-cd-engine
+# 1. Start all services (Gateway, Worker, Vite HMR, and auto-seed)
+./start.sh
 
-# 2. Setup PostgreSQL database
-createdb ci_cd_engine
-psql -d ci_cd_engine -f backend/db.sql
+# Or using npm
+npm start
+```
 
-# 3. Install backend and frontend dependencies
-cd backend && npm install
-cd ../frontend && npm install
-cd ..
-
-# 4. Configure environment variables in backend/.env
-# PORT=5001
-# POSTGRES_DB=ci_cd_engine
-# REDIS_HOST=127.0.0.1
-# GITHUB_WEBHOOK_SECRET=your_secret
-
-# 5. Launch development services
-# Terminal 1: Background Worker Daemon
-cd backend && node src/worker.js
-
-# Terminal 2: Express API Gateway
-cd backend && npm run dev
-
-# Terminal 3: Frontend SPA
-cd frontend && npm run dev
+### Triggering Builds
+- **From UI:** Navigate to `http://localhost:5001/ci/`, click **"Interviewer Demo Access"**, and click the **[Run]** button next to any connected repository.
+- **Offline Demo Trigger (Zero Network Dependency):**
+```bash
+npm run demo          # Deterministic 4-stage parallel DAG execution
+npm run demo:fail     # Demonstrates failure handling & downstream stage skipping
+```
+- **From Terminal (Signed Webhook Simulation):**
+```bash
+./start.sh trigger    # Sends HMAC-SHA256 authenticated GitHub push webhook
 ```
 
 ---
 
 ## Testing & Quality Assurance
 
-MagnusCI includes a master test runner `test.sh` covering unit tests, integration workflows, and browser tests:
+Run the test suites directly via `start.sh`:
 
 ```bash
-# Run the complete test suite
-./test.sh
+# Run core unit tests (DAG engine, RAM allocator, cache, log parser)
+./start.sh test
 
-# Run specific testing categories:
-./test.sh --unit          # Unit suites (DAG engine, RAM allocator, zstd cache, security)
-./test.sh --integration   # Integration suites (preview router, WebSockets, DB performance)
-./test.sh --e2e           # Playwright browser end-to-end tests
-./test.sh --k8s           # Kubernetes infrastructure deployment checks
+# Or run full test suite via Jest:
+./start.sh test:all
 ```
 
 ---

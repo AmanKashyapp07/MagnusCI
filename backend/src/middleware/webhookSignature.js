@@ -4,14 +4,22 @@ const config = require('../config/env');
 
 /**
  * Timing-Safe HMAC SHA-256 GitHub Webhook Verification Middleware
+ *
+ * Security policy:
+ *  - GITHUB_WEBHOOK_SECRET MUST be set.  When it is absent the middleware
+ *    rejects all requests with 500 rather than silently bypassing verification.
+ *    This prevents accidental exposure in staging or demo environments.
+ *  - Both the x-hub-signature-256 header and the raw request body are required.
+ *  - Comparison uses crypto.timingSafeEqual to prevent timing-based attacks.
+ *  - Secrets are never logged.
  */
 const verifyGithubSignature = (req, res, next) => {
   const secret = config.GITHUB_WEBHOOK_SECRET || process.env.GITHUB_WEBHOOK_SECRET;
 
-  // If no secret is configured, bypass verification (useful for local testing)
+  // Fail closed: a missing secret is a configuration error, not a bypass case.
   if (!secret) {
-    logger.warn('GITHUB_WEBHOOK_SECRET is not configured. Bypassing webhook signature check.');
-    return next();
+    logger.error('GITHUB_WEBHOOK_SECRET is not configured. Rejecting all webhook requests (fail-closed).');
+    return res.status(500).json({ error: 'Server misconfiguration: webhook secret is not set.' });
   }
 
   const signature = req.headers['x-hub-signature-256'];
